@@ -8,7 +8,7 @@ import MapView from "./components/MapView.jsx";
 import toast, { Toaster } from "react-hot-toast";
 
 export default function App() {
-  // --- Core app state ---
+  // --- State ---
   const [deviceId, setDeviceId] = useState(null);
   const [user, setUser] = useState("");
   const [car, setCar] = useState("");
@@ -17,18 +17,18 @@ export default function App() {
   const [online, setOnline] = useState(navigator.onLine);
   const [activeTab, setActiveTab] = useState("log");
 
-  // --- Transit data ---
   const [stations, setStations] = useState([]);
+  const [filteredStations, setFilteredStations] = useState([]);
+
+  const [selectedLine, setSelectedLine] = useState("");
   const [selectedStationOn, setSelectedStationOn] = useState("");
   const [selectedStationOff, setSelectedStationOff] = useState("");
-  const [selectedLine, setSelectedLine] = useState("");
   const [autoFilled, setAutoFilled] = useState(false);
 
-  // --- Derived ---
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
 
-  // --- Load stations ---
+  // --- Load stations from gist ---
   useEffect(() => {
     fetch("https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv")
       .then((res) => res.text())
@@ -39,29 +39,20 @@ export default function App() {
           return { lng: +lng, lat: +lat, type, line, name };
         });
         setStations(parsed);
+        setFilteredStations(parsed);
       })
       .catch((err) => console.error("Failed to load stations", err));
   }, []);
 
-  // --- Auto-fill nearest station for Tap On ---
+  // --- Auto-fill nearest station once ---
   useEffect(() => {
-    if (nearest && nearest.name && !autoFilled) {
+    if (!autoFilled && nearest?.name) {
       setSelectedStationOn(nearest.name);
       setAutoFilled(true);
     }
   }, [nearest, autoFilled]);
 
-  // --- Get lines available for the selected ON station ---
-  const availableLines = selectedStationOn
-    ? [...new Set(stations.filter((s) => s.name === selectedStationOn).map((s) => s.line))].sort()
-    : [];
-
-  // --- Filtered off-stations based on selected line ---
-  const filteredOffStations = selectedLine
-    ? stations.filter((s) => s.line === selectedLine)
-    : stations;
-
-  // --- Persistent device ID ---
+  // --- Device ID ---
   useEffect(() => {
     async function init() {
       let id = await db.getItem(K.deviceId);
@@ -74,24 +65,54 @@ export default function App() {
     init();
   }, []);
 
-  // --- Detect online/offline ---
+  // --- Online/offline detection ---
   useEffect(() => {
-    const set = () => setOnline(navigator.onLine);
-    window.addEventListener("online", set);
-    window.addEventListener("offline", set);
+    const handler = () => setOnline(navigator.onLine);
+    window.addEventListener("online", handler);
+    window.addEventListener("offline", handler);
     return () => {
-      window.removeEventListener("online", set);
-      window.removeEventListener("offline", set);
+      window.removeEventListener("online", handler);
+      window.removeEventListener("offline", handler);
     };
   }, []);
 
-  // --- Auto-sync when online ---
+  // --- Auto sync when back online ---
   useEffect(() => {
     if (online) {
       console.log("📡 Back online, syncing...");
       syncNow();
     }
   }, [online]);
+
+  // --- Update filtered stations when line changes ---
+  useEffect(() => {
+    if (!selectedLine || selectedLine === "Other") {
+      setFilteredStations(stations);
+      return;
+    }
+    const filtered = stations.filter((s) => s.line === selectedLine);
+    setFilteredStations(filtered);
+  }, [selectedLine, stations]);
+
+  // --- Allow changing both line/station freely ---
+  function handleStationChange(value, setStation) {
+    setStation(value);
+    // Keep the line selection intact unless invalidated
+    const match = stations.find(
+      (s) => s.name === value && s.line === selectedLine
+    );
+    if (!match && selectedLine && selectedLine !== "Other") {
+      // if new station doesn't belong to selected line
+      toast("⚠️ Station not on selected line. Adjusting line...");
+      setSelectedLine("");
+    }
+  }
+
+  function handleLineChange(value) {
+    setSelectedLine(value);
+    if (value === "Other") return;
+    // If current station(s) don’t exist on this line, keep them anyway (user can reselect)
+  }
 
   // --- Sync logs ---
   async function syncNow() {
@@ -114,17 +135,12 @@ export default function App() {
     }
   }
 
-  // --- Tap actions ---
+  // --- Tap On / Off ---
   async function handleTap(action) {
     if (!user) {
       toast.error("Please select a user.");
       return;
     }
-
-    const station =
-      action === "on"
-        ? selectedStationOn || nearest?.name
-        : selectedStationOff || nearest?.name;
 
     const entry = {
       id: uid(),
@@ -134,7 +150,10 @@ export default function App() {
       car: car || null,
       action,
       line: selectedLine || "Other",
-      station: station || "Unknown",
+      station:
+        action === "on"
+          ? selectedStationOn || nearest?.name || "Unknown"
+          : selectedStationOff || nearest?.name || "Unknown",
       lat: pos?.lat,
       lon: pos?.lon,
     };
@@ -142,13 +161,20 @@ export default function App() {
     const updated = [...outbox, entry];
     setOutbox(updated);
     await db.setItem(K.outbox, updated);
+
+    if (action === "on") setSelectedStationOff("");
     toast.success(`✅ Tap ${action.toUpperCase()} recorded!`);
   }
 
-  // --- Fetch logs ---
+  // --- Fetch recent logs ---
   useEffect(() => {
     fetchRecentLogs().then(setServerLogs).catch(() => {});
   }, [outbox]);
+
+  // --- Unique Lines ---
+  const uniqueLines = [
+    ...new Set(stations.map((s) => s.line).filter(Boolean)),
+  ].sort();
 
   // --- UI ---
   return (
@@ -173,6 +199,7 @@ export default function App() {
         </button>
       </div>
 
+      {/* LOG TAB */}
       {activeTab === "log" && (
         <>
           <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg space-y-3 border border-slate-700">
@@ -181,7 +208,7 @@ export default function App() {
             </h1>
 
             {/* User */}
-            <div className="mb-3">
+            <div>
               <label className="block text-slate-400 text-sm mb-1">User</label>
               <select
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
@@ -191,9 +218,7 @@ export default function App() {
                   if (val === "__new__") {
                     const name = prompt("Enter new user name:");
                     if (name) setUser(name.trim());
-                  } else {
-                    setUser(val);
-                  }
+                  } else setUser(val);
                 }}
               >
                 <option value="">-- Select user --</option>
@@ -205,7 +230,7 @@ export default function App() {
             </div>
 
             {/* Car */}
-            <div className="mb-4">
+            <div>
               <label className="block text-slate-400 text-sm mb-1">
                 Car Number (optional)
               </label>
@@ -224,104 +249,81 @@ export default function App() {
             </div>
 
             {/* Tap On Station */}
-            <div className="mb-4">
+            <div>
               <label className="block text-slate-400 text-sm mb-1">
                 Tap On Station
               </label>
-              <select
+              <input
+                type="text"
+                placeholder="Search or enter station..."
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                 value={selectedStationOn}
-                onChange={(e) => {
-                  setSelectedStationOn(e.target.value);
-                  setSelectedLine("");
-                }}
-              >
-                <option value="">-- Select Station --</option>
-                {[...new Set(stations.map((s) => s.name))].map((name) => (
-                  <option key={name} value={name}>
-                    {name}
+                onChange={(e) => handleStationChange(e.target.value, setSelectedStationOn)}
+                list="stationsOn"
+              />
+              <datalist id="stationsOn">
+                {filteredStations.map((s) => (
+                  <option key={`${s.name}-${s.line}`} value={s.name}>
+                    {s.name} ({s.line})
                   </option>
                 ))}
                 <option value="Other">Other</option>
-              </select>
-              {selectedStationOn === "Other" && (
-                <input
-                  type="text"
-                  placeholder="Enter custom station"
-                  className="w-full mt-2 bg-slate-800 text-slate-100 rounded-xl p-2"
-                  onChange={(e) => setSelectedStationOn(e.target.value)}
-                />
-              )}
+              </datalist>
             </div>
 
-            {/* Line (enabled only after station chosen) */}
-            <div className="mb-4">
+            {/* Transit Line */}
+            <div>
               <label className="block text-slate-400 text-sm mb-1">
                 Transit Line
               </label>
-              <select
+              <input
+                type="text"
+                placeholder="Search or select line..."
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                 value={selectedLine}
-                onChange={(e) => setSelectedLine(e.target.value)}
-                disabled={!selectedStationOn}
-              >
-                <option value="">-- Select Line --</option>
-                {availableLines.map((line) => (
+                onChange={(e) => handleLineChange(e.target.value)}
+                list="linesList"
+              />
+              <datalist id="linesList">
+                {uniqueLines.map((line) => (
                   <option key={line} value={line}>
                     {line}
                   </option>
                 ))}
                 <option value="Other">Other</option>
-              </select>
-              {selectedLine === "Other" && (
-                <input
-                  type="text"
-                  placeholder="Enter custom line"
-                  className="w-full mt-2 bg-slate-800 text-slate-100 rounded-xl p-2"
-                  onChange={(e) => setSelectedLine(e.target.value)}
-                />
-              )}
+              </datalist>
             </div>
 
-            {/* Tap Off */}
-            <div className="mb-4">
+            {/* Tap Off Station */}
+            <div>
               <label className="block text-slate-400 text-sm mb-1">
                 Tap Off Station
               </label>
-              <select
+              <input
+                type="text"
+                placeholder="Search or enter station..."
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                 value={selectedStationOff}
-                onChange={(e) => setSelectedStationOff(e.target.value)}
-                disabled={!selectedLine}
-              >
-                <option value="">-- Select Station --</option>
-                {filteredOffStations.map((s) => (
-                  <option key={s.name + s.line} value={s.name}>
+                onChange={(e) =>
+                  handleStationChange(e.target.value, setSelectedStationOff)
+                }
+                list="stationsOff"
+              />
+              <datalist id="stationsOff">
+                {filteredStations.map((s) => (
+                  <option key={`${s.name}-${s.line}`} value={s.name}>
                     {s.name}
                   </option>
                 ))}
                 <option value="Other">Other</option>
-              </select>
-              {selectedStationOff === "Other" && (
-                <input
-                  type="text"
-                  placeholder="Enter custom station"
-                  className="w-full mt-2 bg-slate-800 text-slate-100 rounded-xl p-2"
-                  onChange={(e) => setSelectedStationOff(e.target.value)}
-                />
-              )}
+              </datalist>
             </div>
 
-            {/* Map */}
+            {/* Map + Info */}
             <div className="text-sm text-slate-300 mb-2">
-              {pos && pos.lat != null && pos.lon != null ? (
-                <>
-                  📍 {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)} (±
-                  {pos.acc || "?"}m)
-                </>
-              ) : (
-                "Getting location..."
-              )}
+              {pos && pos.lat != null && pos.lon != null
+                ? `📍 ${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)} (±${pos.acc || "?"}m)`
+                : "Getting location..."}
               <br />
               {nearest ? (
                 <span>
@@ -332,7 +334,7 @@ export default function App() {
               )}
             </div>
 
-            {pos && pos.lat && pos.lon ? (
+            {pos?.lat && pos?.lon ? (
               <MapView key={`${pos.lat}-${pos.lon}`} pos={pos} nearest={nearest} />
             ) : (
               <div className="text-slate-400 text-sm text-center py-2">
@@ -340,19 +342,17 @@ export default function App() {
               </div>
             )}
 
-            {/* Buttons */}
+            {/* Tap Buttons */}
             <div className="flex justify-center gap-3 mt-3">
               <button
                 onClick={() => handleTap("on")}
-                disabled={!selectedStationOn}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50"
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
               >
                 🚇 Tap On
               </button>
               <button
                 onClick={() => handleTap("off")}
-                disabled={!selectedLine}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50"
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
               >
                 🏁 Tap Off
               </button>
@@ -379,21 +379,22 @@ export default function App() {
         </>
       )}
 
-      {/* Summary */}
+      {/* SUMMARY TAB */}
       {activeTab === "summary" && (
         <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg border border-slate-700">
           <h2 className="text-xl font-bold mb-3">📊 My Trips Summary</h2>
           {serverLogs.filter((r) => r.user === user).length === 0 ? (
-            <p className="text-slate-400">No trips yet for {user || "this user"}.</p>
+            <p className="text-slate-400">
+              No trips yet for {user || "this user"}.
+            </p>
           ) : (
             <table className="w-full text-sm text-slate-200 border-collapse">
               <thead>
                 <tr className="border-b border-slate-700">
-                  <th className="text-left py-1">🕓 Time</th>
-                  <th className="text-left py-1">Line</th>
-                  <th className="text-left py-1">Station</th>
-                  <th className="text-left py-1">Action</th>
-                  <th className="text-left py-1">Car</th>
+                  <th>🕓 Time</th>
+                  <th>Action</th>
+                  <th>Station</th>
+                  <th>Line</th>
                 </tr>
               </thead>
               <tbody>
@@ -402,12 +403,11 @@ export default function App() {
                   .slice(-10)
                   .reverse()
                   .map((r) => (
-                    <tr key={r.id} className="border-b border-slate-800">
+                    <tr key={r.id}>
                       <td>{new Date(r.timestamp).toLocaleTimeString()}</td>
-                      <td>{r.line}</td>
-                      <td>{r.station}</td>
                       <td>{r.action}</td>
-                      <td>{r.car || "-"}</td>
+                      <td>{r.station}</td>
+                      <td>{r.line}</td>
                     </tr>
                   ))}
               </tbody>
