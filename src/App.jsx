@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useEffect, useState } from "react";
 import { db, K, uid } from "./db.js";
 import { useGeolocation } from "./hooks/useGeolocation.js";
@@ -7,7 +8,7 @@ import MapView from "./components/MapView.jsx";
 import toast, { Toaster } from "react-hot-toast";
 
 export default function App() {
-  // --- State ---
+  // --- Core app state ---
   const [deviceId, setDeviceId] = useState(null);
   const [user, setUser] = useState("");
   const [car, setCar] = useState("");
@@ -16,28 +17,20 @@ export default function App() {
   const [online, setOnline] = useState(navigator.onLine);
   const [activeTab, setActiveTab] = useState("log");
 
+  // --- Transit data ---
   const [stations, setStations] = useState([]);
-
   const [selectedStationOn, setSelectedStationOn] = useState("");
   const [selectedStationOff, setSelectedStationOff] = useState("");
+  const [selectedLine, setSelectedLine] = useState("");
+  const [autoFilled, setAutoFilled] = useState(false);
 
-    const [selectedLine, setSelectedLine] = useState("");
-  const uniqueLines = [...new Set(stations.map((s) => s.line))].sort();
-
-    const filteredStations = selectedLine
-  ? stations.filter((s) => s.line === selectedLine)
-  : stations;
-
-
-
+  // --- Derived ---
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
 
-  // --- Load stations from gist ---
+  // --- Load stations ---
   useEffect(() => {
-    fetch(
-      "https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv"
-    )
+    fetch("https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv")
       .then((res) => res.text())
       .then((csv) => {
         const lines = csv.trim().split("\n").slice(1);
@@ -46,17 +39,27 @@ export default function App() {
           return { lng: +lng, lat: +lat, type, line, name };
         });
         setStations(parsed);
-        setFilteredStations(parsed);
       })
       .catch((err) => console.error("Failed to load stations", err));
   }, []);
 
-  // --- Auto-select nearest station ---
+  // --- Auto-fill nearest station for Tap On ---
   useEffect(() => {
-    if (nearest && nearest.name) {
+    if (nearest && nearest.name && !autoFilled) {
       setSelectedStationOn(nearest.name);
+      setAutoFilled(true);
     }
-  }, [nearest]);
+  }, [nearest, autoFilled]);
+
+  // --- Get lines available for the selected ON station ---
+  const availableLines = selectedStationOn
+    ? [...new Set(stations.filter((s) => s.name === selectedStationOn).map((s) => s.line))].sort()
+    : [];
+
+  // --- Filtered off-stations based on selected line ---
+  const filteredOffStations = selectedLine
+    ? stations.filter((s) => s.line === selectedLine)
+    : stations;
 
   // --- Persistent device ID ---
   useEffect(() => {
@@ -82,23 +85,13 @@ export default function App() {
     };
   }, []);
 
-  // --- Auto-sync when back online ---
+  // --- Auto-sync when online ---
   useEffect(() => {
     if (online) {
       console.log("📡 Back online, syncing...");
       syncNow();
     }
   }, [online]);
-
-  // --- Filter stations while typing ---
-  const handleStationSearch = (e, setter) => {
-    const value = e.target.value.toLowerCase();
-    setter(value);
-    const filtered = stations.filter((s) =>
-      s.name.toLowerCase().includes(value)
-    );
-    setFilteredStations(filtered);
-  };
 
   // --- Sync logs ---
   async function syncNow() {
@@ -121,7 +114,7 @@ export default function App() {
     }
   }
 
-  // --- Tap On / Off ---
+  // --- Tap actions ---
   async function handleTap(action) {
     if (!user) {
       toast.error("Please select a user.");
@@ -134,27 +127,25 @@ export default function App() {
         : selectedStationOff || nearest?.name;
 
     const entry = {
-  id: uid(),
-  timestamp: new Date().toISOString(),
-  deviceId,
-  user,
-  car: car || null,
-  action,
-  line: selectedLine || null,
-  station: action === "on" ? selectedStationOn : selectedStationOff,
-  lat: pos?.lat,
-  lon: pos?.lon,
-};
-
+      id: uid(),
+      timestamp: new Date().toISOString(),
+      deviceId,
+      user,
+      car: car || null,
+      action,
+      line: selectedLine || "Other",
+      station: station || "Unknown",
+      lat: pos?.lat,
+      lon: pos?.lon,
+    };
 
     const updated = [...outbox, entry];
     setOutbox(updated);
     await db.setItem(K.outbox, updated);
-
     toast.success(`✅ Tap ${action.toUpperCase()} recorded!`);
   }
 
-  // --- Fetch server logs ---
+  // --- Fetch logs ---
   useEffect(() => {
     fetchRecentLogs().then(setServerLogs).catch(() => {});
   }, [outbox]);
@@ -162,7 +153,7 @@ export default function App() {
   // --- UI ---
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-6 px-4">
-      {/* --- Tabs --- */}
+      {/* Tabs */}
       <div className="flex justify-center mb-4 gap-3">
         <button
           onClick={() => setActiveTab("log")}
@@ -182,7 +173,6 @@ export default function App() {
         </button>
       </div>
 
-      {/* --- LOG TAB --- */}
       {activeTab === "log" && (
         <>
           <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg space-y-3 border border-slate-700">
@@ -190,7 +180,7 @@ export default function App() {
               🚇 Barcelona Transit Logger
             </h1>
 
-            {/* --- User selector --- */}
+            {/* User */}
             <div className="mb-3">
               <label className="block text-slate-400 text-sm mb-1">User</label>
               <select
@@ -214,7 +204,7 @@ export default function App() {
               </select>
             </div>
 
-            {/* --- Car number --- */}
+            {/* Car */}
             <div className="mb-4">
               <label className="block text-slate-400 text-sm mb-1">
                 Car Number (optional)
@@ -233,116 +223,96 @@ export default function App() {
               />
             </div>
 
-            {/* --- Select Line --- */}
-<div className="mb-4">
-  <label className="block text-slate-400 text-sm mb-1">
-    Transit Line
-  </label>
-  <select
-    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
-    value={selectedLine}
-    onChange={(e) => {
-      const val = e.target.value;
-      if (val === "__other__") {
-        const custom = prompt("Enter custom line name (e.g. S2, R1, etc.):");
-        if (custom) setSelectedLine(custom.trim());
-      } else {
-        setSelectedLine(val);
-      }
-    }}
-  >
-    <option value="">-- Select Line --</option>
-    {uniqueLines.map((line) => (
-      <option key={line} value={line}>
-        {line}
-      </option>
-    ))}
-    <option value="__other__">➕ Other (manual entry)</option>
-  </select>
+            {/* Tap On Station */}
+            <div className="mb-4">
+              <label className="block text-slate-400 text-sm mb-1">
+                Tap On Station
+              </label>
+              <select
+                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                value={selectedStationOn}
+                onChange={(e) => {
+                  setSelectedStationOn(e.target.value);
+                  setSelectedLine("");
+                }}
+              >
+                <option value="">-- Select Station --</option>
+                {[...new Set(stations.map((s) => s.name))].map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value="Other">Other</option>
+              </select>
+              {selectedStationOn === "Other" && (
+                <input
+                  type="text"
+                  placeholder="Enter custom station"
+                  className="w-full mt-2 bg-slate-800 text-slate-100 rounded-xl p-2"
+                  onChange={(e) => setSelectedStationOn(e.target.value)}
+                />
+              )}
+            </div>
 
-  {selectedLine && !uniqueLines.includes(selectedLine) && (
-    <p className="text-xs text-slate-400">
-      Custom line: <b>{selectedLine}</b>
-    </p>
-  )}
-</div>
+            {/* Line (enabled only after station chosen) */}
+            <div className="mb-4">
+              <label className="block text-slate-400 text-sm mb-1">
+                Transit Line
+              </label>
+              <select
+                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                value={selectedLine}
+                onChange={(e) => setSelectedLine(e.target.value)}
+                disabled={!selectedStationOn}
+              >
+                <option value="">-- Select Line --</option>
+                {availableLines.map((line) => (
+                  <option key={line} value={line}>
+                    {line}
+                  </option>
+                ))}
+                <option value="Other">Other</option>
+              </select>
+              {selectedLine === "Other" && (
+                <input
+                  type="text"
+                  placeholder="Enter custom line"
+                  className="w-full mt-2 bg-slate-800 text-slate-100 rounded-xl p-2"
+                  onChange={(e) => setSelectedLine(e.target.value)}
+                />
+              )}
+            </div>
 
-{/* --- Tap On Station --- */}
-<div className="mb-4">
-  <label className="block text-slate-400 text-sm mb-1">
-    Tap On Station
-  </label>
-  <select
-    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
-    value={selectedStationOn}
-    onChange={(e) => {
-      const val = e.target.value;
-      if (val === "__other__") {
-        const custom = prompt("Enter custom station name:");
-        if (custom) setSelectedStationOn(custom.trim());
-      } else {
-        setSelectedStationOn(val);
-      }
-    }}
-    disabled={!selectedLine}
-  >
-    <option value="">
-      {selectedLine ? "-- Select Station --" : "Select line first..."}
-    </option>
-    {filteredStations.map((s) => (
-      <option key={s.name + s.line} value={s.name}>
-        {s.name}
-      </option>
-    ))}
-    <option value="__other__">➕ Other (manual entry)</option>
-  </select>
+            {/* Tap Off */}
+            <div className="mb-4">
+              <label className="block text-slate-400 text-sm mb-1">
+                Tap Off Station
+              </label>
+              <select
+                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                value={selectedStationOff}
+                onChange={(e) => setSelectedStationOff(e.target.value)}
+                disabled={!selectedLine}
+              >
+                <option value="">-- Select Station --</option>
+                {filteredOffStations.map((s) => (
+                  <option key={s.name + s.line} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
+                <option value="Other">Other</option>
+              </select>
+              {selectedStationOff === "Other" && (
+                <input
+                  type="text"
+                  placeholder="Enter custom station"
+                  className="w-full mt-2 bg-slate-800 text-slate-100 rounded-xl p-2"
+                  onChange={(e) => setSelectedStationOff(e.target.value)}
+                />
+              )}
+            </div>
 
-  {selectedStationOn && !filteredStations.some((s) => s.name === selectedStationOn) && (
-    <p className="text-xs text-slate-400">
-      Custom station: <b>{selectedStationOn}</b>
-    </p>
-  )}
-</div>
-
-{/* --- Tap Off Station --- */}
-<div className="mb-4">
-  <label className="block text-slate-400 text-sm mb-1">
-    Tap Off Station
-  </label>
-  <select
-    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
-    value={selectedStationOff}
-    onChange={(e) => {
-      const val = e.target.value;
-      if (val === "__other__") {
-        const custom = prompt("Enter custom station name:");
-        if (custom) setSelectedStationOff(custom.trim());
-      } else {
-        setSelectedStationOff(val);
-      }
-    }}
-    disabled={!selectedLine}
-  >
-    <option value="">
-      {selectedLine ? "-- Select Station --" : "Select line first..."}
-    </option>
-    {filteredStations.map((s) => (
-      <option key={s.name + s.line} value={s.name}>
-        {s.name}
-      </option>
-    ))}
-    <option value="__other__">➕ Other (manual entry)</option>
-  </select>
-
-  {selectedStationOff && !filteredStations.some((s) => s.name === selectedStationOff) && (
-    <p className="text-xs text-slate-400">
-      Custom station: <b>{selectedStationOff}</b>
-    </p>
-  )}
-</div>
-
-
-            {/* --- Map --- */}
+            {/* Map */}
             <div className="text-sm text-slate-300 mb-2">
               {pos && pos.lat != null && pos.lon != null ? (
                 <>
@@ -370,21 +340,25 @@ export default function App() {
               </div>
             )}
 
+            {/* Buttons */}
             <div className="flex justify-center gap-3 mt-3">
               <button
                 onClick={() => handleTap("on")}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
+                disabled={!selectedStationOn}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50"
               >
                 🚇 Tap On
               </button>
               <button
                 onClick={() => handleTap("off")}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold"
+                disabled={!selectedLine}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold disabled:opacity-50"
               >
                 🏁 Tap Off
               </button>
             </div>
 
+            {/* Sync */}
             <div className="flex justify-between items-center mt-3 text-sm">
               <button
                 onClick={syncNow}
@@ -402,61 +376,23 @@ export default function App() {
               </div>
             </div>
           </div>
-
-          {/* --- Local Logs --- */}
-          <div className="max-w-md w-full bg-slate-800/60 mt-6 p-4 rounded-2xl border border-slate-700">
-            <h2 className="font-semibold mb-2 text-lg">🕒 Recent (Local)</h2>
-            <div className="text-sm">
-              {outbox.filter((r) => r.user === user).length === 0 ? (
-                <p className="text-slate-400">
-                  No local logs for {user || "this user"}.
-                </p>
-              ) : (
-                <table className="w-full text-left text-slate-200 text-sm">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Action</th>
-                      <th>Station</th>
-                      <th>Car</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {outbox
-                      .filter((r) => r.user === user)
-                      .slice(-10)
-                      .reverse()
-                      .map((r) => (
-                        <tr key={r.id}>
-                          <td>{new Date(r.timestamp).toLocaleTimeString()}</td>
-                          <td>{r.action}</td>
-                          <td>{r.station}</td>
-                          <td>{r.car || "-"}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
         </>
       )}
 
-      {/* --- SUMMARY TAB --- */}
+      {/* Summary */}
       {activeTab === "summary" && (
         <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg border border-slate-700">
           <h2 className="text-xl font-bold mb-3">📊 My Trips Summary</h2>
           {serverLogs.filter((r) => r.user === user).length === 0 ? (
-            <p className="text-slate-400">
-              No trips yet for {user || "this user"}.
-            </p>
+            <p className="text-slate-400">No trips yet for {user || "this user"}.</p>
           ) : (
             <table className="w-full text-sm text-slate-200 border-collapse">
               <thead>
                 <tr className="border-b border-slate-700">
                   <th className="text-left py-1">🕓 Time</th>
-                  <th className="text-left py-1">Action</th>
+                  <th className="text-left py-1">Line</th>
                   <th className="text-left py-1">Station</th>
+                  <th className="text-left py-1">Action</th>
                   <th className="text-left py-1">Car</th>
                 </tr>
               </thead>
@@ -468,8 +404,9 @@ export default function App() {
                   .map((r) => (
                     <tr key={r.id} className="border-b border-slate-800">
                       <td>{new Date(r.timestamp).toLocaleTimeString()}</td>
-                      <td>{r.action}</td>
+                      <td>{r.line}</td>
                       <td>{r.station}</td>
+                      <td>{r.action}</td>
                       <td>{r.car || "-"}</td>
                     </tr>
                   ))}
