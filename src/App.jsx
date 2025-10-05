@@ -222,57 +222,50 @@ export default function App() {
               />
             </div>
 
-            {/* --- Tap On Station --- */}
-            <div className="mb-4">
-              <label className="block text-slate-400 text-sm mb-1">
-                Tap On Station
-              </label>
-              <input
-                type="text"
-                placeholder="Search stations..."
-                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
-                value={selectedStationOn}
-                onChange={(e) => handleStationSearch(e, setSelectedStationOn)}
-              />
-              <select
-                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                value={selectedStationOn}
-                onChange={(e) => setSelectedStationOn(e.target.value)}
-              >
-                <option value="">-- Select Station --</option>
-                {filteredStations.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name} ({s.line})
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* --- Tap On Station --- */}
+<div className="mb-4">
+  <label className="block text-slate-400 text-sm mb-1">
+    Tap On Station
+  </label>
+  <input
+    type="text"
+    placeholder="Search station..."
+    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+    value={selectedStationOn}
+    onChange={(e) => setSelectedStationOn(e.target.value)}
+    list="stationsOn"
+  />
+  <datalist id="stationsOn">
+    {stations.map((s) => (
+      <option key={s.name} value={s.name}>
+        {s.name} ({s.line})
+      </option>
+    ))}
+  </datalist>
+</div>
 
-            {/* --- Tap Off Station --- */}
-            <div className="mb-4">
-              <label className="block text-slate-400 text-sm mb-1">
-                Tap Off Station
-              </label>
-              <input
-                type="text"
-                placeholder="Search stations..."
-                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
-                value={selectedStationOff}
-                onChange={(e) => handleStationSearch(e, setSelectedStationOff)}
-              />
-              <select
-                className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                value={selectedStationOff}
-                onChange={(e) => setSelectedStationOff(e.target.value)}
-              >
-                <option value="">-- Select Station --</option>
-                {filteredStations.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name} ({s.line})
-                  </option>
-                ))}
-              </select>
-            </div>
+{/* --- Tap Off Station --- */}
+<div className="mb-4">
+  <label className="block text-slate-400 text-sm mb-1">
+    Tap Off Station
+  </label>
+  <input
+    type="text"
+    placeholder="Search station..."
+    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+    value={selectedStationOff}
+    onChange={(e) => setSelectedStationOff(e.target.value)}
+    list="stationsOff"
+  />
+  <datalist id="stationsOff">
+    {stations.map((s) => (
+      <option key={s.name} value={s.name}>
+        {s.name} ({s.line})
+      </option>
+    ))}
+  </datalist>
+</div>
+
 
             {/* --- Map --- */}
             <div className="text-sm text-slate-300 mb-2">
