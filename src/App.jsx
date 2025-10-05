@@ -60,29 +60,37 @@ export default function App() {
     }
   }
 
-  // --- Tap On / Tap Off ---
-  async function handleTap(action) {
-    if (!user || !nearest) {
-      alert("Please select your name and allow location access.");
-      return;
-    }
+ // --- Tap On / Tap Off (Supabase) ---
+async function handleTap(action) {
+  if (!user || !nearest) {
+    alert("Please select your name and allow location access.");
+    return;
+  }
+
+  try {
+    const userId = await ensureUser(user);
 
     const entry = {
-      id: uid(),
-      timestamp: Date.now(),
-      deviceId,
-      user,             // ✅ now included
-      car: car || null, // ✅ now included
+      device_id: deviceId,
+      user_id: userId,
+      car: car || null,
       action,
       station: nearest.name,
       lat: pos?.lat,
       lon: pos?.lon,
     };
 
-    const updated = [...outbox, entry];
-    setOutbox(updated);
-    await db.setItem(K.outbox, updated);
+    await postLogs([entry]);
+    console.log("✅ Log saved to Supabase:", entry);
+
+    // refresh logs list
+    const logs = await fetchRecentLogs();
+    setServerLogs(logs);
+  } catch (err) {
+    console.error("❌ Failed to save log:", err);
   }
+}
+
 
   // --- Fetch recent logs from server ---
   useEffect(() => {

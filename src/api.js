@@ -1,22 +1,53 @@
 // src/api.js
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+import { supabase } from "./supabaseClient.js";
 
-// --- Send one or multiple log events to the backend ---
-export async function postLogs(events) {
-  const body = Array.isArray(events) ? events : [events];
-  const res = await fetch(`${API_URL}/api/logs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
-  return res.json();
+// Ensure user exists or create them
+export async function ensureUser(name) {
+  if (!name) return null;
+
+  // Check existing
+  const { data: existing, error: fetchError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("name", name)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (existing) return existing.id;
+
+  // Create new user
+  const { data, error: insertError } = await supabase
+    .from("users")
+    .insert([{ name }])
+    .select("id")
+    .single();
+
+  if (insertError) throw insertError;
+  return data.id;
 }
 
-// --- Fetch recent logs from the backend (for testing) ---
-export async function fetchRecentLogs(limit = 10) {
-  const res = await fetch(`${API_URL}/api/logs`);
-  if (!res.ok) throw new Error('Failed to fetch logs');
-  const rows = await res.json();
-  return rows.slice(0, limit);
+// Add logs
+export async function postLogs(logs) {
+  const { error } = await supabase.from("logs").insert(logs);
+  if (error) throw error;
+  return { ok: true };
+}
+
+// Fetch latest logs
+export async function fetchRecentLogs() {
+  const { data, error } = await supabase
+    .from("logs")
+    .select("id, timestamp, action, station, car, users ( name )")
+    .order("timestamp", { ascending: false })
+    .limit(20);
+
+  if (error) throw error;
+  return data.map((r) => ({
+    id: r.id,
+    timestamp: r.timestamp,
+    action: r.action,
+    station: r.station,
+    car: r.car,
+    user: r.users?.name,
+  }));
 }
