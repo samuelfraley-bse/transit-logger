@@ -17,9 +17,18 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("log");
 
   const [stations, setStations] = useState([]);
-  const [filteredStations, setFilteredStations] = useState([]);
+
   const [selectedStationOn, setSelectedStationOn] = useState("");
   const [selectedStationOff, setSelectedStationOff] = useState("");
+
+    const [selectedLine, setSelectedLine] = useState("");
+  const uniqueLines = [...new Set(stations.map((s) => s.line))].sort();
+
+    const filteredStations = selectedLine
+  ? stations.filter((s) => s.line === selectedLine)
+  : stations;
+
+
 
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
@@ -125,16 +134,18 @@ export default function App() {
         : selectedStationOff || nearest?.name;
 
     const entry = {
-      id: uid(),
-      timestamp: new Date().toISOString(),
-      deviceId,
-      user,
-      car: car || null,
-      action,
-      station: station || "Unknown",
-      lat: pos?.lat,
-      lon: pos?.lon,
-    };
+  id: uid(),
+  timestamp: new Date().toISOString(),
+  deviceId,
+  user,
+  car: car || null,
+  action,
+  line: selectedLine || null,
+  station: action === "on" ? selectedStationOn : selectedStationOff,
+  lat: pos?.lat,
+  lon: pos?.lon,
+};
+
 
     const updated = [...outbox, entry];
     setOutbox(updated);
@@ -222,26 +233,75 @@ export default function App() {
               />
             </div>
 
-          {/* --- Tap On Station --- */}
+            {/* --- Select Line --- */}
+<div className="mb-4">
+  <label className="block text-slate-400 text-sm mb-1">
+    Transit Line
+  </label>
+  <select
+    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
+    value={selectedLine}
+    onChange={(e) => {
+      const val = e.target.value;
+      if (val === "__other__") {
+        const custom = prompt("Enter custom line name (e.g. S2, R1, etc.):");
+        if (custom) setSelectedLine(custom.trim());
+      } else {
+        setSelectedLine(val);
+      }
+    }}
+  >
+    <option value="">-- Select Line --</option>
+    {uniqueLines.map((line) => (
+      <option key={line} value={line}>
+        {line}
+      </option>
+    ))}
+    <option value="__other__">➕ Other (manual entry)</option>
+  </select>
+
+  {selectedLine && !uniqueLines.includes(selectedLine) && (
+    <p className="text-xs text-slate-400">
+      Custom line: <b>{selectedLine}</b>
+    </p>
+  )}
+</div>
+
+{/* --- Tap On Station --- */}
 <div className="mb-4">
   <label className="block text-slate-400 text-sm mb-1">
     Tap On Station
   </label>
-  <input
-    type="text"
-    placeholder="Search station..."
-    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+  <select
+    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
     value={selectedStationOn}
-    onChange={(e) => setSelectedStationOn(e.target.value)}
-    list="stationsOn"
-  />
-  <datalist id="stationsOn">
-    {stations.map((s) => (
-      <option key={s.name} value={s.name}>
-        {s.name} ({s.line})
+    onChange={(e) => {
+      const val = e.target.value;
+      if (val === "__other__") {
+        const custom = prompt("Enter custom station name:");
+        if (custom) setSelectedStationOn(custom.trim());
+      } else {
+        setSelectedStationOn(val);
+      }
+    }}
+    disabled={!selectedLine}
+  >
+    <option value="">
+      {selectedLine ? "-- Select Station --" : "Select line first..."}
+    </option>
+    {filteredStations.map((s) => (
+      <option key={s.name + s.line} value={s.name}>
+        {s.name}
       </option>
     ))}
-  </datalist>
+    <option value="__other__">➕ Other (manual entry)</option>
+  </select>
+
+  {selectedStationOn && !filteredStations.some((s) => s.name === selectedStationOn) && (
+    <p className="text-xs text-slate-400">
+      Custom station: <b>{selectedStationOn}</b>
+    </p>
+  )}
 </div>
 
 {/* --- Tap Off Station --- */}
@@ -249,21 +309,36 @@ export default function App() {
   <label className="block text-slate-400 text-sm mb-1">
     Tap Off Station
   </label>
-  <input
-    type="text"
-    placeholder="Search station..."
-    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+  <select
+    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2 mb-2"
     value={selectedStationOff}
-    onChange={(e) => setSelectedStationOff(e.target.value)}
-    list="stationsOff"
-  />
-  <datalist id="stationsOff">
-    {stations.map((s) => (
-      <option key={s.name} value={s.name}>
-        {s.name} ({s.line})
+    onChange={(e) => {
+      const val = e.target.value;
+      if (val === "__other__") {
+        const custom = prompt("Enter custom station name:");
+        if (custom) setSelectedStationOff(custom.trim());
+      } else {
+        setSelectedStationOff(val);
+      }
+    }}
+    disabled={!selectedLine}
+  >
+    <option value="">
+      {selectedLine ? "-- Select Station --" : "Select line first..."}
+    </option>
+    {filteredStations.map((s) => (
+      <option key={s.name + s.line} value={s.name}>
+        {s.name}
       </option>
     ))}
-  </datalist>
+    <option value="__other__">➕ Other (manual entry)</option>
+  </select>
+
+  {selectedStationOff && !filteredStations.some((s) => s.name === selectedStationOff) && (
+    <p className="text-xs text-slate-400">
+      Custom station: <b>{selectedStationOff}</b>
+    </p>
+  )}
 </div>
 
 
