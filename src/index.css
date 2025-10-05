@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: theme('colors.slate.900');
+    color: theme('colors.slate.100');
+    font-family: theme('fontFamily.sans');
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Optional: add custom button style layer */
+@layer components {
+  .btn {
+    @apply rounded-xl font-bold py-3 px-4 transition-all duration-150;
+  }
+}
