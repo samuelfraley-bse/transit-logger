@@ -6,6 +6,7 @@ import { postLogs, fetchRecentLogs } from "./api.js";
 import { supabase } from "./supabaseClient.js";
 import MapView from "./components/MapView.jsx";
 import toast, { Toaster } from "react-hot-toast";
+import ReactMarkdown from "react-markdown";
 
 export default function App() {
   // --- Auth ---
@@ -39,6 +40,13 @@ export default function App() {
     await supabase.auth.signOut();
     toast("Signed out");
   }
+//change log
+useEffect(() => {
+  fetch("/CHANGELOG.md")
+    .then((res) => res.text())
+    .then(setChangelog)
+    .catch(() => setChangelog("⚠️ Could not load changelog."));
+}, []);
 
   // --- Core States ---
   const [deviceId, setDeviceId] = useState(null);
@@ -56,6 +64,7 @@ export default function App() {
   const [selectedLineOff, setSelectedLineOff] = useState("");
   const [activeTrip, setActiveTrip] = useState(null);
   const [activeJourneyId, setActiveJourneyId] = useState(null);
+  const [changelog, setChangelog] = useState("Loading changelog...");
 
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
@@ -238,6 +247,30 @@ export default function App() {
         >
           📊 My Trips
         </button>
+
+        {activeTab === "release" && (
+  <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700">
+    <h2 className="text-xl font-bold mb-4">📝 Release Notes</h2>
+    <div className="prose prose-invert text-sm max-w-none">
+      <ReactMarkdown>{changelog}</ReactMarkdown>
+    </div>
+  </div>
+)}
+
+
+        <button
+
+        
+  onClick={() => setActiveTab("release")}
+  className={`px-4 py-2 rounded-xl font-semibold ${
+    activeTab === "release" ? "bg-blue-600" : "bg-slate-700"
+  }`}
+>
+  📝 Release Notes
+</button>
+
+
+
       </div>
 
       {activeTab === "log" && (
