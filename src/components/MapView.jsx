@@ -1,107 +1,98 @@
-// src/components/MapView.jsx
-import React, { useEffect, useState } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  CircleMarker,
-  Popup,
-} from "react-leaflet";
+import { useEffect, useRef } from "react";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-const GIST_URL =
-  "https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv";
+export default function MapView({ position, stations = [], nearest }) {
+  const mapRef = useRef(null);
+  const userMarkerRef = useRef(null);
+  const stationLayerRef = useRef(null);
 
-export default function MapView({ pos, nearest }) {
-  const [stations, setStations] = useState([]);
-
-  // --- Load the CSV with known structure ---
+  // --- Initialize the map ONCE ---
   useEffect(() => {
-    async function loadStations() {
-      try {
-        const res = await fetch(GIST_URL);
-        const text = await res.text();
+    if (mapRef.current) return; // already created
 
-        const lines = text.trim().split("\n").slice(1); // skip header
-        const parsed = lines
-          .map((line) => {
-            const [lng, lat, type, lineName, name] = line.split(",");
-            const latNum = parseFloat(lat);
-            const lngNum = parseFloat(lng);
-            if (isNaN(latNum) || isNaN(lngNum)) return null;
-            return { lat: latNum, lng: lngNum, line: lineName, name };
-          })
-          .filter(Boolean);
+    mapRef.current = L.map("map", {
+      center: [41.3851, 2.1734], // Barcelona default
+      zoom: 13,
+      zoomControl: true,
+    });
 
-        setStations(parsed);
-        console.log("Loaded stations:", parsed.length);
-      } catch (err) {
-        console.error("Failed to load stations:", err);
+    // 🗺️ CartoDB Dark Matter (HTTPS-safe)
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: "abcd",
+        maxZoom: 19,
       }
-    }
-    loadStations();
+    ).addTo(mapRef.current);
+
+    // create empty layer groups
+    userMarkerRef.current = L.layerGroup().addTo(mapRef.current);
+    stationLayerRef.current = L.layerGroup().addTo(mapRef.current);
+
+    return () => {
+      mapRef.current.remove();
+      mapRef.current = null;
+    };
   }, []);
 
-  if (!pos || !pos.lat || !pos.lon)
-    return (
-      <div className="text-slate-400 text-sm text-center py-2">
-        Waiting for location…
-      </div>
-    );
+  // --- Update user marker when position changes ---
+  useEffect(() => {
+    if (!mapRef.current || !position?.lat || !position?.lon) return;
+
+    const map = mapRef.current;
+    const layer = userMarkerRef.current;
+    layer.clearLayers();
+
+    // user location marker
+    L.circleMarker([position.lat, position.lon], {
+      radius: 8,
+      color: "#00d4ff",
+      fillColor: "#00d4ff",
+      fillOpacity: 0.8,
+    }).addTo(layer);
+
+    // accuracy circle
+    if (position.acc) {
+      L.circle([position.lat, position.lon], {
+        radius: position.acc,
+        color: "#00d4ff33",
+        fillColor: "#00d4ff22",
+        fillOpacity: 0.2,
+      }).addTo(layer);
+    }
+
+    // pan smoothly to new position
+    map.setView([position.lat, position.lon], map.getZoom());
+  }, [position]);
+
+  // --- Update stations and nearest highlight ---
+  useEffect(() => {
+    if (!mapRef.current || stations.length === 0) return;
+
+    const layer = stationLayerRef.current;
+    layer.clearLayers();
+
+    stations.forEach((s) => {
+      if (!s.lat || !s.lng) return;
+      L.circleMarker([s.lat, s.lng], {
+        radius: 4,
+        color: s.name === nearest?.name ? "yellow" : "#999",
+        fillColor: s.name === nearest?.name ? "yellow" : "#555",
+        fillOpacity: s.name === nearest?.name ? 0.9 : 0.6,
+      })
+        .addTo(layer)
+        .bindPopup(`<b>${s.name}</b><br/>Line: ${s.line}`);
+    });
+  }, [stations, nearest]);
 
   return (
-    <div className="mt-3 rounded-xl overflow-hidden">
-      <MapContainer
-        center={[pos.lat, pos.lon]}
-        zoom={13}
-        scrollWheelZoom={false}
-        style={{ height: "250px", width: "100%", borderRadius: "12px" }}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        />
-
-        {/* --- User Position --- */}
-        <CircleMarker
-          center={[pos.lat, pos.lon]}
-          radius={8}
-          color="#00FFFF"
-          fillColor="#00FFFF"
-          fillOpacity={0.8}
-        >
-          <Popup>Your current location</Popup>
-        </CircleMarker>
-
-        {/* --- Nearest Station Highlight --- */}
-        {nearest && (
-          <CircleMarker
-            center={[nearest.lat, nearest.lon]}
-            radius={10}
-            color="#FFD700"
-            fillColor="#FFD700"
-            fillOpacity={0.9}
-          >
-            <Popup>Nearest: {nearest.name}</Popup>
-          </CircleMarker>
-        )}
-
-        {/* --- All Stations --- */}
-        {stations.map((s, i) => (
-          <CircleMarker
-            key={i}
-            center={[s.lat, s.lng]}
-            radius={4}
-            color="#00FF88"
-            fillColor="#00FF88"
-            fillOpacity={0.7}
-          >
-            <Popup>
-              <b>{s.name}</b> <br />
-              Line {s.line}
-            </Popup>
-          </CircleMarker>
-        ))}
-      </MapContainer>
-    </div>
+    <div
+      id="map"
+      className="rounded-xl border border-slate-700"
+      style={{ height: "300px", width: "100%" }}
+    ></div>
   );
 }
