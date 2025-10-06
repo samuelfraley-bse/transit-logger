@@ -18,12 +18,12 @@ export default function App() {
       setUser(session?.user ?? null);
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+      }
+    );
 
     return () => subscription.unsubscribe();
   }, []);
@@ -53,6 +53,9 @@ export default function App() {
   const [selectedStationOff, setSelectedStationOff] = useState("");
   const [activeTrip, setActiveTrip] = useState(null);
 
+  // 🆕 Journey tracking
+  const [activeJourney, setActiveJourney] = useState(null);
+
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
 
@@ -73,7 +76,7 @@ export default function App() {
       .catch((err) => console.error("Failed to load stations", err));
   }, []);
 
-  // --- Auto-select nearest station for Tap On ---
+  // --- Auto-select nearest station ---
   useEffect(() => {
     if (nearest?.name && !searchOn) {
       setSearchOn(nearest.name);
@@ -124,27 +127,71 @@ export default function App() {
     }
   }
 
-  // --- Tap Logic ---
+  // --- Handle Tap On/Off ---
   async function handleTap(action) {
     if (!user) return toast.error("Please sign in first.");
 
-    const station =
-      action === "on"
-        ? selectedStationOn || nearest?.name || "Unknown"
-        : selectedStationOff || "Unknown";
+    let journeyId = activeJourney?.id;
 
+    // 🟢 If Tap ON: create or reuse journey
+    if (action === "on") {
+      if (!journeyId) {
+        const { data, error } = await supabase
+          .from("journeys")
+          .insert({
+            user_id: user.id,
+            start_station: selectedStationOn || nearest?.name || "Unknown",
+            lines_used: ["pending"], // placeholder for now
+          })
+          .select()
+          .single();
+
+        if (error) {
+          toast.error("Failed to start journey: " + error.message);
+          return;
+        }
+
+        journeyId = data.id;
+        setActiveJourney(data);
+        toast.success("🚇 Journey started!");
+      }
+    }
+
+    // 🔴 If Tap OFF: mark journey as complete
+    if (action === "off" && activeJourney) {
+      const offStation = selectedStationOff || nearest?.name || "Unknown";
+      const { error } = await supabase
+        .from("journeys")
+        .update({
+          end_time: new Date().toISOString(),
+          end_station: offStation,
+          complete: true,
+        })
+        .eq("id", activeJourney.id);
+
+      if (error) {
+        toast.error("Failed to complete journey: " + error.message);
+      } else {
+        toast.success("🏁 Journey completed!");
+        setActiveJourney(null);
+      }
+    }
+
+    // --- Log the event ---
     const entry = {
-      id: uid(),
-      timestamp: new Date().toISOString(),
-      deviceId,
-      user_id: user.id,
-      email: user.email,
-      car: car || null,
-      action,
-      station,
-      lat: pos?.lat,
-      lon: pos?.lon,
-    };
+  id: uid(), // optional — Supabase can auto-generate
+  timestamp: new Date().toISOString(),
+  deviceId,
+  user_id: user.id, // ✅ Supabase Auth UUID
+  email: user.email, // ✅ so we can display or filter
+  car: car || null,
+  action,
+  station: selectedStationOn || nearest?.name || "Unknown",
+  lat: pos?.lat,
+  lon: pos?.lon,
+  line: line || null, // add if you track line
+};
+
 
     const updated = [...outbox, entry];
     setOutbox(updated);
@@ -156,14 +203,12 @@ export default function App() {
         station: entry.station,
         startTime: entry.timestamp,
       });
-      toast.success("🚇 Trip started!");
     } else {
       setActiveTrip(null);
-      setSelectedStationOff("");
-      toast.success("🏁 Trip completed!");
     }
   }
 
+  // --- Fetch recent logs ---
   useEffect(() => {
     fetchRecentLogs().then(setServerLogs).catch(() => {});
   }, [outbox]);
@@ -227,7 +272,7 @@ export default function App() {
                   Nearest: <strong>{nearest?.name || "Detecting..."}</strong>
                 </p>
 
-                {/* Tap On Station */}
+                {/* Station Input */}
                 <div className="mb-4 relative">
                   <label className="block text-slate-400 text-sm mb-1">
                     Station
@@ -288,7 +333,7 @@ export default function App() {
                 <p className="text-center text-slate-300">
                   From <strong>{activeTrip.station}</strong>
                 </p>
-                <p className="text-center text-slate-400 mb-4">
+                <p className="text-center text-slate-400">
                   Started at{" "}
                   {new Date(activeTrip.startTime).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -297,19 +342,19 @@ export default function App() {
                 </p>
 
                 {/* Tap Off Station */}
-                <div className="mb-4 relative">
+                <div className="mb-4 relative mt-4">
                   <label className="block text-slate-400 text-sm mb-1">
                     Tap Off Station
                   </label>
                   <input
                     type="text"
-                    placeholder="Type or select station..."
+                    placeholder="Type station name..."
                     value={selectedStationOff}
                     onChange={(e) => setSelectedStationOff(e.target.value)}
-                    list="stationsOffList"
+                    list="stationsListOff"
                     className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                   />
-                  <datalist id="stationsOffList">
+                  <datalist id="stationsListOff">
                     {stations.map((s) => (
                       <option key={`${s.name}-${s.line}`} value={s.name}>
                         {s.name} ({s.line})

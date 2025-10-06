@@ -1,5 +1,4 @@
-// src/hooks/useStations.js
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 const GIST_URL =
   "https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv";
@@ -21,9 +20,13 @@ function distance(lat1, lon1, lat2, lon2) {
 export function useNearestStation(pos) {
   const [stations, setStations] = useState([]);
   const [nearest, setNearest] = useState(null);
+  const hasLoaded = useRef(false); // 🧠 prevent infinite loop on load
 
-  // Load stations once
+  // ✅ Load station list once
   useEffect(() => {
+    if (hasLoaded.current) return; // prevent re-fetching
+    hasLoaded.current = true;
+
     async function loadStations() {
       try {
         const res = await fetch(GIST_URL);
@@ -45,12 +48,13 @@ export function useNearestStation(pos) {
         console.error("Failed to load stations:", err);
       }
     }
+
     loadStations();
   }, []);
 
-  // Compute nearest station whenever position changes
+  // ✅ Compute nearest station safely when position changes
   useEffect(() => {
-    if (!pos || !pos.lat || !pos.lon || stations.length === 0) return;
+    if (!pos?.lat || !pos?.lon || stations.length === 0) return;
 
     let closest = null;
     let minDist = Infinity;
@@ -64,7 +68,7 @@ export function useNearestStation(pos) {
     }
 
     setNearest(closest);
-  }, [pos, stations]);
+  }, [pos?.lat, pos?.lon, stations]);
 
   return nearest;
 }

@@ -1,41 +1,28 @@
 import { supabase } from "./supabaseClient.js";
 
+// 🚀 Save logs to Supabase
 export async function postLogs(logs) {
   try {
     for (const log of logs) {
-      // Step 1: Ensure user exists
-      const { data: existing, error: existingErr } = await supabase
-        .from("users")
-        .select("id")
-        .eq("name", log.user)
-        .maybeSingle();
-
-      if (existingErr) throw existingErr;
-
-      let userId = existing?.id;
-      if (!userId) {
-        const { data: inserted, error: insertErr } = await supabase
-          .from("users")
-          .insert({ name: log.user })
-          .select()
-          .single();
-        if (insertErr) throw insertErr;
-        userId = inserted.id;
-      }
-
-      // Step 2: Insert log row
-      const { error: logErr } = await supabase.from("logs").insert({
+      const entry = {
         timestamp: new Date(log.timestamp).toISOString(),
         device_id: log.deviceId,
-        user_id: userId,
-        car: log.car,
+        user_id: log.user_id, // ✅ must be Supabase Auth UUID
+        email: log.email || null,
+        car: log.car || null,
         action: log.action,
         station: log.station,
         lat: log.lat,
         lon: log.lon,
-      });
+        line: log.line || null,
+      };
 
-      if (logErr) throw logErr;
+      const { error } = await supabase.from("logs").insert(entry);
+
+     if (error) {
+  console.error("❌ postLogs failed", JSON.stringify(error, null, 2));
+  throw error;
+}
     }
 
     return { ok: true };
@@ -45,35 +32,21 @@ export async function postLogs(logs) {
   }
 }
 
+// 🧾 Fetch recent logs for user
 export async function fetchRecentLogs() {
-  const { data, error } = await supabase
-    .from("logs")
-    .select(
-      `
-      id,
-      timestamp,
-      car,
-      action,
-      station,
-      lat,
-      lon,
-      users ( name )
-    `
-    )
-    .order("timestamp", { ascending: false })
-    .limit(10);
+  try {
+    const { data, error } = await supabase
+      .from("logs")
+      .select("*")
+      .order("timestamp", { ascending: false })
+      .limit(20);
 
-  if (error) {
-    console.error("Fetch logs failed:", error);
+    if (error) throw error;
+
+    return data;
+  } catch (err) {
+    console.error("❌ Fetch logs failed:", err);
     return [];
   }
-
-  return data.map((row) => ({
-    id: row.id,
-    timestamp: row.timestamp,
-    user: row.users?.name || "-",
-    car: row.car,
-    action: row.action,
-    station: row.station,
-  }));
 }
+
