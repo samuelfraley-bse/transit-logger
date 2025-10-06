@@ -49,12 +49,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("log");
   const [stations, setStations] = useState([]);
   const [searchOn, setSearchOn] = useState("");
+  const [searchOff, setSearchOff] = useState("");
   const [selectedStationOn, setSelectedStationOn] = useState("");
   const [selectedStationOff, setSelectedStationOff] = useState("");
+  const [selectedLineOn, setSelectedLineOn] = useState("");
+  const [selectedLineOff, setSelectedLineOff] = useState("");
   const [activeTrip, setActiveTrip] = useState(null);
-
-  // 🆕 Journey tracking
-  const [activeJourney, setActiveJourney] = useState(null);
+  const [activeJourneyId, setActiveJourneyId] = useState(null);
 
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
@@ -97,7 +98,19 @@ export default function App() {
     init();
   }, []);
 
-  // --- Online/Offline ---
+  // --- Restore Active Trip on Reload ---
+  useEffect(() => {
+    async function loadActiveTrip() {
+      const savedTrip = await db.getItem(K.activeTrip);
+      if (savedTrip) {
+        setActiveTrip(savedTrip);
+        setActiveJourneyId(savedTrip.journey_id);
+      }
+    }
+    loadActiveTrip();
+  }, []);
+
+  // --- Online/Offline Sync ---
   useEffect(() => {
     const set = () => setOnline(navigator.onLine);
     window.addEventListener("online", set);
@@ -127,88 +140,53 @@ export default function App() {
     }
   }
 
-  // --- Handle Tap On/Off ---
+  // --- Tap Logic ---
   async function handleTap(action) {
     if (!user) return toast.error("Please sign in first.");
 
-    let journeyId = activeJourney?.id;
+    const journeyId = activeJourneyId || uid();
 
-    // 🟢 If Tap ON: create or reuse journey
-    if (action === "on") {
-      if (!journeyId) {
-        const { data, error } = await supabase
-          .from("journeys")
-          .insert({
-            user_id: user.id,
-            start_station: selectedStationOn || nearest?.name || "Unknown",
-            lines_used: ["pending"], // placeholder for now
-          })
-          .select()
-          .single();
-
-        if (error) {
-          toast.error("Failed to start journey: " + error.message);
-          return;
-        }
-
-        journeyId = data.id;
-        setActiveJourney(data);
-        toast.success("🚇 Journey started!");
-      }
-    }
-
-    // 🔴 If Tap OFF: mark journey as complete
-    if (action === "off" && activeJourney) {
-      const offStation = selectedStationOff || nearest?.name || "Unknown";
-      const { error } = await supabase
-        .from("journeys")
-        .update({
-          end_time: new Date().toISOString(),
-          end_station: offStation,
-          complete: true,
-        })
-        .eq("id", activeJourney.id);
-
-      if (error) {
-        toast.error("Failed to complete journey: " + error.message);
-      } else {
-        toast.success("🏁 Journey completed!");
-        setActiveJourney(null);
-      }
-    }
-
-    // --- Log the event ---
     const entry = {
-  id: uid(), // optional — Supabase can auto-generate
-  timestamp: new Date().toISOString(),
-  deviceId,
-  user_id: user.id, // ✅ Supabase Auth UUID
-  email: user.email, // ✅ so we can display or filter
-  car: car || null,
-  action,
-  station: selectedStationOn || nearest?.name || "Unknown",
-  lat: pos?.lat,
-  lon: pos?.lon,
-  line: line || null, // add if you track line
-};
-
+      timestamp: new Date().toISOString(),
+      deviceId,
+      user_id: user.id,
+      email: user.email,
+      car: car || null,
+      action,
+      station:
+        action === "on"
+          ? selectedStationOn || nearest?.name || "Unknown"
+          : selectedStationOff || nearest?.name || "Unknown",
+      lat: pos?.lat,
+      lon: pos?.lon,
+      boarded_line: action === "on" ? selectedLineOn : null,
+      exited_line: action === "off" ? selectedLineOff : null,
+      journey_id: journeyId,
+    };
 
     const updated = [...outbox, entry];
     setOutbox(updated);
     await db.setItem(K.outbox, updated);
 
     if (action === "on") {
-      setActiveTrip({
-        id: entry.id,
+      const tripData = {
+        id: entry.timestamp,
         station: entry.station,
         startTime: entry.timestamp,
-      });
+        journey_id: journeyId,
+      };
+      setActiveTrip(tripData);
+      setActiveJourneyId(journeyId);
+      await db.setItem(K.activeTrip, tripData);
+      toast.success("🚇 Trip started!");
     } else {
       setActiveTrip(null);
+      setActiveJourneyId(null);
+      await db.removeItem(K.activeTrip);
+      toast.success("🏁 Trip completed!");
     }
   }
 
-  // --- Fetch recent logs ---
   useEffect(() => {
     fetchRecentLogs().then(setServerLogs).catch(() => {});
   }, [outbox]);
@@ -272,8 +250,8 @@ export default function App() {
                   Nearest: <strong>{nearest?.name || "Detecting..."}</strong>
                 </p>
 
-                {/* Station Input */}
-                <div className="mb-4 relative">
+                {/* Station Selection */}
+                <div className="mb-4">
                   <label className="block text-slate-400 text-sm mb-1">
                     Station
                   </label>
@@ -295,6 +273,25 @@ export default function App() {
                       </option>
                     ))}
                   </datalist>
+                </div>
+
+                {/* Line Selection */}
+                <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-1">
+                    Line
+                  </label>
+                  <select
+                    value={selectedLineOn}
+                    onChange={(e) => setSelectedLineOn(e.target.value)}
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                  >
+                    <option value="">-- Select Line --</option>
+                    {[...new Set(stations.map((s) => s.line))].map((line) => (
+                      <option key={line} value={line}>
+                        {line}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Car Number */}
@@ -341,26 +338,47 @@ export default function App() {
                   })}
                 </p>
 
-                {/* Tap Off Station */}
-                <div className="mb-4 relative mt-4">
+                {/* Tap Off Inputs */}
+                <div className="mt-4">
                   <label className="block text-slate-400 text-sm mb-1">
                     Tap Off Station
                   </label>
                   <input
                     type="text"
                     placeholder="Type station name..."
-                    value={selectedStationOff}
-                    onChange={(e) => setSelectedStationOff(e.target.value)}
-                    list="stationsListOff"
+                    value={searchOff}
+                    onChange={(e) => {
+                      setSearchOff(e.target.value);
+                      setSelectedStationOff(e.target.value);
+                    }}
+                    list="stationsOff"
                     className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                   />
-                  <datalist id="stationsListOff">
+                  <datalist id="stationsOff">
                     {stations.map((s) => (
                       <option key={`${s.name}-${s.line}`} value={s.name}>
                         {s.name} ({s.line})
                       </option>
                     ))}
                   </datalist>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-slate-400 text-sm mb-1">
+                    Exited Line
+                  </label>
+                  <select
+                    value={selectedLineOff}
+                    onChange={(e) => setSelectedLineOff(e.target.value)}
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                  >
+                    <option value="">-- Select Line --</option>
+                    {[...new Set(stations.map((s) => s.line))].map((line) => (
+                      <option key={line} value={line}>
+                        {line}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="flex justify-center mt-4">
@@ -394,6 +412,8 @@ export default function App() {
                   <th>🕓 Time</th>
                   <th>Action</th>
                   <th>Station</th>
+                  <th>Line</th>
+                  <th>Journey ID</th>
                 </tr>
               </thead>
               <tbody>
@@ -404,13 +424,17 @@ export default function App() {
                   .map((r) => (
                     <tr key={r.id} className="border-b border-slate-800">
                       <td>
-                        {new Date(r.timestamp).toLocaleTimeString([], {
+                        {new Date(r.timestamp).toLocaleString([], {
                           hour: "2-digit",
                           minute: "2-digit",
+                          month: "short",
+                          day: "numeric",
                         })}
                       </td>
                       <td>{r.action}</td>
                       <td>{r.station}</td>
+                      <td>{r.line || "-"}</td>
+                      <td>{r.journey_id}</td>
                     </tr>
                   ))}
               </tbody>

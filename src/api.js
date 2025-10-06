@@ -1,28 +1,38 @@
+// src/api.js
 import { supabase } from "./supabaseClient.js";
 
-// 🚀 Save logs to Supabase
+/**
+ * Upload unsynced logs to Supabase
+ */
 export async function postLogs(logs) {
   try {
     for (const log of logs) {
-      const entry = {
-        timestamp: new Date(log.timestamp).toISOString(),
-        device_id: log.deviceId,
-        user_id: log.user_id, // ✅ must be Supabase Auth UUID
-        email: log.email || null,
-        car: log.car || null,
-        action: log.action,
-        station: log.station,
-        lat: log.lat,
-        lon: log.lon,
-        line: log.line || null,
-      };
+      console.group("🛰️ Uploading Log Entry");
+      console.log("Payload being sent:", log);
 
-      const { error } = await supabase.from("logs").insert(entry);
+      const { data, error, status, statusText } = await supabase
+        .from("logs")
+        .insert({
+          timestamp: new Date(log.timestamp).toISOString(),
+          device_id: log.deviceId,
+          user_id: log.user_id,
+          email: log.email,
+          car: log.car,
+          action: log.action,
+          station: log.station,
+          lat: log.lat,
+          lon: log.lon,
+          boarded_line: log.boarded_line || null,
+          exited_line: log.exited_line || null,
+          journey_id: log.journey_id || null,
+        })
+        .select();
 
-     if (error) {
-  console.error("❌ postLogs failed", JSON.stringify(error, null, 2));
-  throw error;
-}
+      console.log("Supabase response:", JSON.stringify({ status, statusText, data, error }, null, 2));
+
+      console.groupEnd();
+
+      if (error) throw error;
     }
 
     return { ok: true };
@@ -32,21 +42,44 @@ export async function postLogs(logs) {
   }
 }
 
-// 🧾 Fetch recent logs for user
+/**
+ * Fetch recent logs from Supabase (for Summary tab)
+ */
 export async function fetchRecentLogs() {
   try {
-    const { data, error } = await supabase
+    const { data, error, status, statusText } = await supabase
       .from("logs")
-      .select("*")
+      .select(
+        `
+        id,
+        timestamp,
+        car,
+        action,
+        station,
+        lat,
+        lon,
+        boarded_line,
+        exited_line,
+        journey_id,
+        user_id,
+        email
+      `
+      )
       .order("timestamp", { ascending: false })
-      .limit(20);
+      .limit(50);
+
+    console.log("📥 Fetch logs response:", {
+      status,
+      statusText,
+      error,
+      count: data?.length,
+    });
 
     if (error) throw error;
 
-    return data;
+    return data || [];
   } catch (err) {
     console.error("❌ Fetch logs failed:", err);
     return [];
   }
 }
-
