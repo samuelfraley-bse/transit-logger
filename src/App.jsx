@@ -434,41 +434,137 @@ export default function App() {
       )}
 
       {/* --- SUMMARY TAB --- */}
-      {activeTab === "summary" && (
-        <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg border border-slate-700">
-          <h2 className="text-xl font-bold mb-3">📊 My Trips Summary</h2>
-          {serverLogs.filter((r) => r.user === user).length === 0 ? (
-            <p className="text-slate-400">
-              No trips yet for {user || "this user"}.
-            </p>
-          ) : (
-            <table className="w-full text-sm text-slate-200 border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700">
-                  <th className="text-left py-1">🕓 Time</th>
-                  <th className="text-left py-1">Action</th>
-                  <th className="text-left py-1">Station</th>
-                  <th className="text-left py-1">Line</th>
-                </tr>
-              </thead>
-              <tbody>
-                {serverLogs
-                  .filter((r) => r.user === user)
-                  .slice(-10)
-                  .reverse()
-                  .map((r) => (
-                    <tr key={r.id} className="border-b border-slate-800">
-                      <td>{new Date(r.timestamp).toLocaleTimeString()}</td>
-                      <td>{r.action}</td>
-                      <td>{r.station}</td>
-                      <td>{r.line}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+     {activeTab === "summary" && (
+  <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg border border-slate-700 overflow-y-auto max-h-[70vh]">
+    <h2 className="text-xl font-bold mb-3">📅 My Trips Summary</h2>
+
+    {(() => {
+      const userTrips = serverLogs
+        .filter((r) => r.user === user)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      if (userTrips.length === 0)
+        return (
+          <p className="text-slate-400">
+            No trips yet for {user || "this user"}.
+          </p>
+        );
+
+      // --- Try pairing consecutive on/off for same user ---
+      const pairedTrips = [];
+      for (let i = 0; i < userTrips.length; i++) {
+        const curr = userTrips[i];
+        const next = userTrips[i + 1];
+
+        if (curr.action === "on" && next && next.action === "off") {
+          pairedTrips.push({
+            id: curr.id,
+            on: curr,
+            off: next,
+          });
+          i++; // skip next
+        } else {
+          pairedTrips.push({ id: curr.id, on: curr, off: null });
+        }
+      }
+
+      // --- Group by relative day ---
+      const groups = { today: [], yesterday: [], earlier: [] };
+      const now = new Date();
+      pairedTrips.forEach((p) => {
+        const d = new Date(p.on.timestamp);
+        const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+        if (diffDays === 0) groups.today.push(p);
+        else if (diffDays === 1) groups.yesterday.push(p);
+        else groups.earlier.push(p);
+      });
+
+      // --- Render helper ---
+      const renderGroup = (title, trips) => {
+        if (!trips.length) return null;
+        return (
+          <div key={title} className="mb-5">
+            <h3 className="text-slate-300 text-sm font-semibold mb-2">
+              {title}
+            </h3>
+            <div className="space-y-3">
+              {trips.map((p) => {
+                const start = new Date(p.on.timestamp);
+                const startTime = start.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+                const dateLabel = start.toLocaleDateString([], {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                });
+
+                let offTime = null;
+                if (p.off) {
+                  const end = new Date(p.off.timestamp);
+                  offTime = end.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                }
+
+                return (
+                  <div
+                    key={p.id}
+                    className={`rounded-xl border border-slate-600 p-3 bg-gradient-to-br ${
+                      p.off
+                        ? "from-green-900/40 to-red-900/40"
+                        : "from-green-800/30 to-slate-800/30"
+                    }`}
+                  >
+                    <div className="flex justify-between text-xs text-slate-400 mb-1">
+                      <span>{dateLabel}</span>
+                      <span>ID: {p.id.slice(0, 6)}</span>
+                    </div>
+
+                    <div className="text-slate-100 font-semibold">
+                      {p.on.station}
+                      {p.off ? (
+                        <>
+                          {" "}
+                          →{" "}
+                          <span className="text-slate-200 font-semibold">
+                            {p.off.station}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-yellow-400 text-xs ml-1">
+                          (in progress)
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-slate-400 text-xs mt-1">
+                      {p.on.line || "?"} | {startTime}
+                      {offTime && ` → ${offTime}`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <>
+          {renderGroup("Today", groups.today)}
+          {renderGroup("Yesterday", groups.yesterday)}
+          {renderGroup("Earlier", groups.earlier)}
+        </>
+      );
+    })()}
+  </div>
+)}
+
+
+
 
       <Toaster position="bottom-center" />
     </div>
