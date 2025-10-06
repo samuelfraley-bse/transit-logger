@@ -18,12 +18,12 @@ export default function App() {
       setUser(session?.user ?? null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-      }
-    );
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -50,6 +50,7 @@ export default function App() {
   const [stations, setStations] = useState([]);
   const [searchOn, setSearchOn] = useState("");
   const [selectedStationOn, setSelectedStationOn] = useState("");
+  const [selectedStationOff, setSelectedStationOff] = useState("");
   const [activeTrip, setActiveTrip] = useState(null);
 
   const pos = useGeolocation();
@@ -72,7 +73,7 @@ export default function App() {
       .catch((err) => console.error("Failed to load stations", err));
   }, []);
 
-  // --- Auto-select nearest station ---
+  // --- Auto-select nearest station for Tap On ---
   useEffect(() => {
     if (nearest?.name && !searchOn) {
       setSearchOn(nearest.name);
@@ -127,6 +128,11 @@ export default function App() {
   async function handleTap(action) {
     if (!user) return toast.error("Please sign in first.");
 
+    const station =
+      action === "on"
+        ? selectedStationOn || nearest?.name || "Unknown"
+        : selectedStationOff || "Unknown";
+
     const entry = {
       id: uid(),
       timestamp: new Date().toISOString(),
@@ -135,7 +141,7 @@ export default function App() {
       email: user.email,
       car: car || null,
       action,
-      station: selectedStationOn || nearest?.name || "Unknown",
+      station,
       lat: pos?.lat,
       lon: pos?.lon,
     };
@@ -153,6 +159,7 @@ export default function App() {
       toast.success("🚇 Trip started!");
     } else {
       setActiveTrip(null);
+      setSelectedStationOff("");
       toast.success("🏁 Trip completed!");
     }
   }
@@ -220,7 +227,7 @@ export default function App() {
                   Nearest: <strong>{nearest?.name || "Detecting..."}</strong>
                 </p>
 
-                {/* Editable Station Search */}
+                {/* Tap On Station */}
                 <div className="mb-4 relative">
                   <label className="block text-slate-400 text-sm mb-1">
                     Station
@@ -281,13 +288,36 @@ export default function App() {
                 <p className="text-center text-slate-300">
                   From <strong>{activeTrip.station}</strong>
                 </p>
-                <p className="text-center text-slate-400">
+                <p className="text-center text-slate-400 mb-4">
                   Started at{" "}
                   {new Date(activeTrip.startTime).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
                 </p>
+
+                {/* Tap Off Station */}
+                <div className="mb-4 relative">
+                  <label className="block text-slate-400 text-sm mb-1">
+                    Tap Off Station
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Type or select station..."
+                    value={selectedStationOff}
+                    onChange={(e) => setSelectedStationOff(e.target.value)}
+                    list="stationsOffList"
+                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                  />
+                  <datalist id="stationsOffList">
+                    {stations.map((s) => (
+                      <option key={`${s.name}-${s.line}`} value={s.name}>
+                        {s.name} ({s.line})
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+
                 <div className="flex justify-center mt-4">
                   <button
                     onClick={() => handleTap("off")}
@@ -302,10 +332,7 @@ export default function App() {
 
           {/* Map Section */}
           <div className="max-w-md w-full mt-6">
-        <div className="max-w-md w-full mt-6">
-  <MapView position={pos} stations={stations} nearest={nearest} />
-</div>
-
+            <MapView position={pos} stations={stations} nearest={nearest} />
           </div>
         </>
       )}
