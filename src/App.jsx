@@ -201,282 +201,203 @@ useEffect(() => {
   }, [outbox]);
 
   // --- UI ---
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center text-center">
-        <h1 className="text-3xl font-bold mb-4">🚇 Barcelona Transit Logger</h1>
-        <p className="text-slate-400 mb-6">Sign in to log your trips.</p>
+ // --- UI ---
+if (!user) {
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <h1 className="text-2xl font-bold">🚇 Transit Logger</h1>
+        <p className="text-slate-400">Please log in to continue.</p>
         <button
           onClick={handleLogin}
-          className="bg-blue-600 hover:bg-blue-700 px-5 py-3 rounded-xl font-semibold"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
         >
-          Sign in with Google
-        </button>
-        <Toaster position="bottom-center" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-6 px-4">
-      <div className="flex justify-between w-full max-w-md mb-4">
-        <span className="text-slate-300">👋 {user.email}</span>
-        <button
-          onClick={handleLogout}
-          className="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
-        >
-          Logout
+          Log In with Google
         </button>
       </div>
-
-      {/* Tabs */}
-      <div className="flex justify-center mb-4 gap-3">
-        <button
-          onClick={() => setActiveTab("log")}
-          className={`px-4 py-2 rounded-xl font-semibold ${
-            activeTab === "log" ? "bg-blue-600" : "bg-slate-700"
-          }`}
-        >
-          🚇 Log Trip
-        </button>
-        <button
-          onClick={() => setActiveTab("summary")}
-          className={`px-4 py-2 rounded-xl font-semibold ${
-            activeTab === "summary" ? "bg-blue-600" : "bg-slate-700"
-          }`}
-        >
-          📊 My Trips
-        </button>
-
-        {activeTab === "release" && (
-  <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700">
-    <h2 className="text-xl font-bold mb-4">📝 Release Notes</h2>
-    <div className="prose prose-invert text-sm max-w-none">
-      <ReactMarkdown>{changelog}</ReactMarkdown>
-    </div>
-  </div>
-)}
-
-
-        <button
-
-        
-  onClick={() => setActiveTab("release")}
-  className={`px-4 py-2 rounded-xl font-semibold ${
-    activeTab === "release" ? "bg-blue-600" : "bg-slate-700"
-  }`}
->
-  📝 Release Notes
-</button>
-
-
-
-      </div>
-
-      {activeTab === "log" && (
-        <>
-          <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
-            {!activeTrip ? (
-              <>
-                <h1 className="text-2xl font-bold text-center">🚇 Tap On</h1>
-                <p className="text-center text-slate-400">
-                  Nearest: <strong>{nearest?.name || "Detecting..."}</strong>
-                </p>
-
-                {/* Station Selection */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Station
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Type station name..."
-                    value={searchOn}
-                    onChange={(e) => {
-                      setSearchOn(e.target.value);
-                      setSelectedStationOn(e.target.value);
-                    }}
-                    list="stationsList"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  />
-                  <datalist id="stationsList">
-                    {stations.map((s) => (
-                      <option key={`${s.name}-${s.line}`} value={s.name}>
-                        {s.name} ({s.line})
-                      </option>
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* Line Selection */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Line
-                  </label>
-                  <select
-                    value={selectedLineOn}
-                    onChange={(e) => setSelectedLineOn(e.target.value)}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  >
-                    <option value="">-- Select Line --</option>
-                    {[...new Set(stations.map((s) => s.line))].map((line) => (
-                      <option key={line} value={line}>
-                        {line}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Car Number */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Car Number (optional)
-                  </label>
-                  <input
-                    type="text"
-                    maxLength="3"
-                    inputMode="numeric"
-                    pattern="\d*"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                    placeholder="e.g. 123"
-                    value={car}
-                    onChange={(e) =>
-                      setCar(e.target.value.replace(/\D/g, "").slice(0, 3))
-                    }
-                  />
-                </div>
-
-                <div className="flex justify-center mt-4">
-                  <button
-                    onClick={() => handleTap("on")}
-                    className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold"
-                  >
-                    🚇 Tap On
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h1 className="text-xl font-bold text-yellow-400 text-center">
-                  🟡 Trip in Progress
-                </h1>
-                <p className="text-center text-slate-300">
-                  From <strong>{activeTrip.station}</strong>
-                </p>
-                <p className="text-center text-slate-400">
-                  Started at{" "}
-                  {new Date(activeTrip.startTime).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-
-                {/* Tap Off Inputs */}
-                <div className="mt-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Tap Off Station
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Type station name..."
-                    value={searchOff}
-                    onChange={(e) => {
-                      setSearchOff(e.target.value);
-                      setSelectedStationOff(e.target.value);
-                    }}
-                    list="stationsOff"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  />
-                  <datalist id="stationsOff">
-                    {stations.map((s) => (
-                      <option key={`${s.name}-${s.line}`} value={s.name}>
-                        {s.name} ({s.line})
-                      </option>
-                    ))}
-                  </datalist>
-                </div>
-
-                <div className="mt-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Exited Line
-                  </label>
-                  <select
-                    value={selectedLineOff}
-                    onChange={(e) => setSelectedLineOff(e.target.value)}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  >
-                    <option value="">-- Select Line --</option>
-                    {[...new Set(stations.map((s) => s.line))].map((line) => (
-                      <option key={line} value={line}>
-                        {line}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex justify-center mt-4">
-                  <button
-                    onClick={() => handleTap("off")}
-                    className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold"
-                  >
-                    🏁 Tap Off
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Map Section */}
-          <div className="max-w-md w-full mt-6">
-            <MapView position={pos} stations={stations} nearest={nearest} />
-          </div>
-        </>
-      )}
-
-      {activeTab === "summary" && (
-        <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700">
-          <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
-          {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
-            <p className="text-slate-400">No trips yet.</p>
-          ) : (
-            <table className="w-full text-sm text-slate-200 border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700">
-                  <th>🕓 Time</th>
-                  <th>Action</th>
-                  <th>Station</th>
-                  <th>Line</th>
-                  <th>Journey ID</th>
-                </tr>
-              </thead>
-              <tbody>
-                {serverLogs
-                  .filter((r) => r.user_id === user.id)
-                  .slice(-20)
-                  .reverse()
-                  .map((r) => (
-                    <tr key={r.id} className="border-b border-slate-800">
-                      <td>
-                        {new Date(r.timestamp).toLocaleString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </td>
-                      <td>{r.action}</td>
-                      <td>{r.station}</td>
-                      <td>{r.line || "-"}</td>
-                      <td>{r.journey_id}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      <Toaster position="bottom-center" />
     </div>
   );
 }
+
+// --- Main Authenticated UI ---
+return (
+  <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-6 px-4">
+    {/* Header */}
+    <div className="flex justify-between w-full max-w-md mb-4">
+      <span className="text-slate-300">👋 {user.email}</span>
+      <button
+        onClick={handleLogout}
+        className="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
+      >
+        Logout
+      </button>
+    </div>
+
+    {/* Tabs (Responsive) */}
+    <div className="flex flex-col sm:flex-row justify-center mb-4 gap-3 w-full max-w-md">
+      <button
+        onClick={() => setActiveTab("log")}
+        className={`px-4 py-2 rounded-xl font-semibold w-full sm:w-auto ${
+          activeTab === "log" ? "bg-blue-600" : "bg-slate-700"
+        }`}
+      >
+        🚇 Log Trip
+      </button>
+      <button
+        onClick={() => setActiveTab("summary")}
+        className={`px-4 py-2 rounded-xl font-semibold w-full sm:w-auto ${
+          activeTab === "summary" ? "bg-blue-600" : "bg-slate-700"
+        }`}
+      >
+        📊 My Trips
+      </button>
+    </div>
+
+    {/* --- Main Content --- */}
+    {activeTab === "log" && (
+      <>
+        <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
+          {!activeTrip ? (
+            <>
+              <h1 className="text-2xl font-bold text-center">🚇 Tap On</h1>
+              <p className="text-center text-slate-400">
+                Nearest: <strong>{nearest?.name || "Detecting..."}</strong>
+              </p>
+
+              {/* Station Search */}
+              <div className="mb-4 relative">
+                <label className="block text-slate-400 text-sm mb-1">
+                  Station
+                </label>
+                <input
+                  type="text"
+                  placeholder="Type station name..."
+                  value={searchOn}
+                  onChange={(e) => {
+                    setSearchOn(e.target.value);
+                    setSelectedStationOn(e.target.value);
+                  }}
+                  list="stationsList"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                />
+                <datalist id="stationsList">
+                  {stations.map((s) => (
+                    <option key={`${s.name}-${s.line}`} value={s.name}>
+                      {s.name} ({s.line})
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Car Number */}
+              <div className="mb-4">
+                <label className="block text-slate-400 text-sm mb-1">
+                  Car Number (optional)
+                </label>
+                <input
+                  type="text"
+                  maxLength="3"
+                  inputMode="numeric"
+                  pattern="\d*"
+                  className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                  placeholder="e.g. 123"
+                  value={car}
+                  onChange={(e) =>
+                    setCar(e.target.value.replace(/\D/g, "").slice(0, 3))
+                  }
+                />
+              </div>
+
+              <div className="flex justify-center mt-4">
+                <button
+                  onClick={() => handleTap("on")}
+                  className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+                >
+                  🚇 Tap On
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-bold text-yellow-400 text-center">
+                🟡 Trip in Progress
+              </h1>
+              <p className="text-center text-slate-300">
+                From <strong>{activeTrip.station}</strong>
+              </p>
+              <p className="text-center text-slate-400">
+                Started at{" "}
+                {new Date(activeTrip.startTime).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              <div className="flex justify-center mt-4">
+                <button
+                  onClick={() => handleTap("off")}
+                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+                >
+                  🏁 Tap Off
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Map Section */}
+        <div className="max-w-md w-full mt-6">
+          <MapView position={pos} stations={stations} nearest={nearest} />
+        </div>
+      </>
+    )}
+
+    {activeTab === "summary" && (
+      <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
+        <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
+        {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
+          <p className="text-slate-400">No trips yet.</p>
+        ) : (
+          <table className="w-full text-sm text-slate-200 border-collapse">
+            <thead>
+              <tr className="border-b border-slate-700">
+                <th>🕓 Time</th>
+                <th>Action</th>
+                <th>Station</th>
+              </tr>
+            </thead>
+            <tbody>
+              {serverLogs
+                .filter((r) => r.user_id === user.id)
+                .slice(-20)
+                .reverse()
+                .map((r) => (
+                  <tr key={r.id} className="border-b border-slate-800">
+                    <td>
+                      {new Date(r.timestamp).toLocaleString([], {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </td>
+                    <td>{r.action}</td>
+                    <td>{r.station}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    )}
+
+       {/* --- Release Notes Section --- */}
+    <div className="max-w-md w-full mt-10 bg-slate-800/60 p-4 rounded-2xl border border-slate-700 text-slate-200">
+      <h2 className="text-xl font-bold mb-4">📝 Release Notes</h2>
+      <div className="prose prose-invert text-sm max-w-none">
+        <ReactMarkdown>{changelog}</ReactMarkdown>
+      </div>
+    </div>
+
+    <Toaster position="bottom-center" />
+  </div>
+);
+}
+
