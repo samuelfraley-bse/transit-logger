@@ -20,39 +20,43 @@ function distance(lat1, lon1, lat2, lon2) {
 export function useNearestStation(pos) {
   const [stations, setStations] = useState([]);
   const [nearest, setNearest] = useState(null);
-  const hasLoaded = useRef(false); // 🧠 prevent infinite loop on load
+  const hasLoaded = useRef(false);
 
   // ✅ Load station list once
   useEffect(() => {
-    if (hasLoaded.current) return; // prevent re-fetching
+    if (hasLoaded.current) return;
     hasLoaded.current = true;
 
     async function loadStations() {
       try {
-        const res = await fetch(GIST_URL);
+        console.log("📡 Fetching stations CSV...");
+        const res = await fetch(GIST_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const text = await res.text();
 
-        const lines = text.trim().split("\n").slice(1); // skip header
+        // ✅ Clean BOM + normalize newlines
+        const cleanCsv = text.replace(/^\uFEFF/, "").trim();
+        const lines = cleanCsv.split("\n").slice(1);
         const parsed = lines
-          .map((line) => {
-            const [lng, lat, type, lineName, name] = line.split(",");
-            const latNum = parseFloat(lat);
-            const lonNum = parseFloat(lng);
-            if (isNaN(latNum) || isNaN(lonNum)) return null;
-            return { lat: latNum, lon: lonNum, line: lineName, name };
+          .map((row) => {
+            const [lng, lat, type, line, name] = row.split(",").map((v) => v.trim());
+            if (!line || !name || isNaN(+lat) || isNaN(+lng)) return null;
+            return { lng: +lng, lat: +lat, type, line, name };
           })
           .filter(Boolean);
 
+        console.log("✅ Loaded stations:", parsed.length);
+        console.log("🧭 First few:", parsed.slice(0, 5));
         setStations(parsed);
       } catch (err) {
-        console.error("Failed to load stations:", err);
+        console.error("❌ Failed to load stations:", err);
       }
     }
 
     loadStations();
   }, []);
 
-  // ✅ Compute nearest station safely when position changes
+  // ✅ Compute nearest station when position changes
   useEffect(() => {
     if (!pos?.lat || !pos?.lon || stations.length === 0) return;
 
@@ -60,7 +64,7 @@ export function useNearestStation(pos) {
     let minDist = Infinity;
 
     for (const s of stations) {
-      const d = distance(pos.lat, pos.lon, s.lat, s.lon);
+      const d = distance(pos.lat, pos.lon, s.lat, s.lng);
       if (d < minDist) {
         minDist = d;
         closest = { ...s, distance: d };
