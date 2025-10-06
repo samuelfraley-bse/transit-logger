@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useEffect, useState } from "react";
 import { db, K, uid } from "./db.js";
 import { useGeolocation } from "./hooks/useGeolocation.js";
@@ -16,21 +15,22 @@ export default function App() {
   const [serverLogs, setServerLogs] = useState([]);
   const [online, setOnline] = useState(navigator.onLine);
   const [activeTab, setActiveTab] = useState("log");
-
   const [stations, setStations] = useState([]);
   const [filteredStations, setFilteredStations] = useState([]);
-
   const [selectedLine, setSelectedLine] = useState("");
   const [selectedStationOn, setSelectedStationOn] = useState("");
   const [selectedStationOff, setSelectedStationOff] = useState("");
   const [autoFilled, setAutoFilled] = useState(false);
+  const [activeTrip, setActiveTrip] = useState(null);
 
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
 
-  // --- Load stations from gist ---
+  // --- Load stations from CSV ---
   useEffect(() => {
-    fetch("https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv")
+    fetch(
+      "https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv"
+    )
       .then((res) => res.text())
       .then((csv) => {
         const lines = csv.trim().split("\n").slice(1);
@@ -44,15 +44,7 @@ export default function App() {
       .catch((err) => console.error("Failed to load stations", err));
   }, []);
 
-  // --- Auto-fill nearest station once ---
-  useEffect(() => {
-    if (!autoFilled && nearest?.name) {
-      setSelectedStationOn(nearest.name);
-      setAutoFilled(true);
-    }
-  }, [nearest, autoFilled]);
-
-  // --- Device ID ---
+  // --- Load persistent device ID ---
   useEffect(() => {
     async function init() {
       let id = await db.getItem(K.deviceId);
@@ -65,18 +57,26 @@ export default function App() {
     init();
   }, []);
 
-  // --- Online/offline detection ---
+  // --- Auto-select nearest station once ---
   useEffect(() => {
-    const handler = () => setOnline(navigator.onLine);
-    window.addEventListener("online", handler);
-    window.addEventListener("offline", handler);
+    if (!autoFilled && nearest?.name) {
+      setSelectedStationOn(nearest.name);
+      setAutoFilled(true);
+    }
+  }, [nearest, autoFilled]);
+
+  // --- Detect online/offline ---
+  useEffect(() => {
+    const set = () => setOnline(navigator.onLine);
+    window.addEventListener("online", set);
+    window.addEventListener("offline", set);
     return () => {
-      window.removeEventListener("online", handler);
-      window.removeEventListener("offline", handler);
+      window.removeEventListener("online", set);
+      window.removeEventListener("offline", set);
     };
   }, []);
 
-  // --- Auto sync when back online ---
+  // --- Auto-sync when back online ---
   useEffect(() => {
     if (online) {
       console.log("📡 Back online, syncing...");
@@ -84,7 +84,45 @@ export default function App() {
     }
   }, [online]);
 
-  // --- Update filtered stations when line changes ---
+  // --- Load saved preferences for user ---
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const key = `prefs_${user}`;
+      const saved = (await db.getItem(key)) || {};
+      if (saved.car) setCar(saved.car);
+      if (saved.selectedStationOn) setSelectedStationOn(saved.selectedStationOn);
+      if (saved.selectedStationOff) setSelectedStationOff(saved.selectedStationOff);
+      if (saved.selectedLine) setSelectedLine(saved.selectedLine);
+    })();
+  }, [user]);
+
+  // --- Save preferences when filters change ---
+  useEffect(() => {
+    if (!user) return;
+    const key = `prefs_${user}`;
+    const prefs = {
+      car,
+      selectedStationOn,
+      selectedStationOff,
+      selectedLine,
+    };
+    db.setItem(key, prefs);
+  }, [user, car, selectedStationOn, selectedStationOff, selectedLine]);
+
+  // --- Load active trip on startup ---
+  useEffect(() => {
+    db.getItem("activeTrip").then((trip) => {
+      if (trip) {
+        setActiveTrip(trip);
+        setUser(trip.user);
+        setSelectedStationOn(trip.stationOn);
+        setSelectedLine(trip.line);
+      }
+    });
+  }, []);
+
+  // --- Filter stations dynamically (when line changes) ---
   useEffect(() => {
     if (!selectedLine || selectedLine === "Other") {
       setFilteredStations(stations);
@@ -93,26 +131,6 @@ export default function App() {
     const filtered = stations.filter((s) => s.line === selectedLine);
     setFilteredStations(filtered);
   }, [selectedLine, stations]);
-
-  // --- Allow changing both line/station freely ---
-  function handleStationChange(value, setStation) {
-    setStation(value);
-    // Keep the line selection intact unless invalidated
-    const match = stations.find(
-      (s) => s.name === value && s.line === selectedLine
-    );
-    if (!match && selectedLine && selectedLine !== "Other") {
-      // if new station doesn't belong to selected line
-      toast("⚠️ Station not on selected line. Adjusting line...");
-      setSelectedLine("");
-    }
-  }
-
-  function handleLineChange(value) {
-    setSelectedLine(value);
-    if (value === "Other") return;
-    // If current station(s) don’t exist on this line, keep them anyway (user can reselect)
-  }
 
   // --- Sync logs ---
   async function syncNow() {
@@ -142,39 +160,58 @@ export default function App() {
       return;
     }
 
-    const entry = {
-      id: uid(),
-      timestamp: new Date().toISOString(),
-      deviceId,
-      user,
-      car: car || null,
-      action,
-      line: selectedLine || "Other",
-      station:
-        action === "on"
-          ? selectedStationOn || nearest?.name || "Unknown"
-          : selectedStationOff || nearest?.name || "Unknown",
-      lat: pos?.lat,
-      lon: pos?.lon,
-    };
+    if (action === "on") {
+      if (activeTrip) {
+        toast.error("You already have an active trip. Please tap off first.");
+        return;
+      }
+      const trip = {
+        id: uid(),
+        user,
+        stationOn: selectedStationOn || nearest?.name || "Unknown",
+        line: selectedLine || "Unknown",
+        startTime: new Date().toISOString(),
+      };
+      await db.setItem("activeTrip", trip);
+      setActiveTrip(trip);
+      toast.success(`🚇 Trip started at ${trip.stationOn}!`);
+    } else if (action === "off") {
+      if (!activeTrip) {
+        toast.error("No active trip found. Please tap on first.");
+        return;
+      }
 
-    const updated = [...outbox, entry];
-    setOutbox(updated);
-    await db.setItem(K.outbox, updated);
+      const entry = {
+        id: uid(),
+        timestamp: new Date().toISOString(),
+        deviceId,
+        user,
+        car: car || null,
+        line: selectedLine || "Unknown",
+        action,
+        station: selectedStationOff || nearest?.name || "Unknown",
+        lat: pos?.lat,
+        lon: pos?.lon,
+        linkedTrip: activeTrip.id, // ✅ connect the two
+      };
 
-    if (action === "on") setSelectedStationOff("");
-    toast.success(`✅ Tap ${action.toUpperCase()} recorded!`);
+      const updated = [...outbox, entry];
+      setOutbox(updated);
+      await db.setItem(K.outbox, updated);
+
+      await db.removeItem("activeTrip");
+      setActiveTrip(null);
+      toast.success("🏁 Trip completed!");
+    }
   }
 
-  // --- Fetch recent logs ---
+  // --- Fetch server logs ---
   useEffect(() => {
     fetchRecentLogs().then(setServerLogs).catch(() => {});
   }, [outbox]);
 
   // --- Unique Lines ---
-  const uniqueLines = [
-    ...new Set(stations.map((s) => s.line).filter(Boolean)),
-  ].sort();
+  const uniqueLines = [...new Set(stations.map((s) => s.line).filter(Boolean))].sort();
 
   // --- UI ---
   return (
@@ -199,16 +236,24 @@ export default function App() {
         </button>
       </div>
 
-      {/* LOG TAB */}
+      {/* --- Active Trip Reminder --- */}
+      {activeTrip && (
+        <div className="bg-yellow-500 text-black text-center p-2 rounded-md mb-3">
+          🚇 Active trip in progress: <b>{activeTrip.stationOn}</b> on{" "}
+          <b>{activeTrip.line}</b>
+        </div>
+      )}
+
+      {/* --- LOG TAB --- */}
       {activeTab === "log" && (
         <>
-          <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg space-y-3 border border-slate-700">
+          <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg border border-slate-700">
             <h1 className="text-2xl font-bold text-center mb-2">
               🚇 Barcelona Transit Logger
             </h1>
 
-            {/* User */}
-            <div>
+            {/* --- User selector --- */}
+            <div className="mb-3">
               <label className="block text-slate-400 text-sm mb-1">User</label>
               <select
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
@@ -218,7 +263,9 @@ export default function App() {
                   if (val === "__new__") {
                     const name = prompt("Enter new user name:");
                     if (name) setUser(name.trim());
-                  } else setUser(val);
+                  } else {
+                    setUser(val);
+                  }
                 }}
               >
                 <option value="">-- Select user --</option>
@@ -229,8 +276,8 @@ export default function App() {
               </select>
             </div>
 
-            {/* Car */}
-            <div>
+            {/* --- Car number --- */}
+            <div className="mb-4">
               <label className="block text-slate-400 text-sm mb-1">
                 Car Number (optional)
               </label>
@@ -248,8 +295,8 @@ export default function App() {
               />
             </div>
 
-            {/* Tap On Station */}
-            <div>
+            {/* --- Tap On Station --- */}
+            <div className="mb-4">
               <label className="block text-slate-400 text-sm mb-1">
                 Tap On Station
               </label>
@@ -258,7 +305,7 @@ export default function App() {
                 placeholder="Search or enter station..."
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                 value={selectedStationOn}
-                onChange={(e) => handleStationChange(e.target.value, setSelectedStationOn)}
+                onChange={(e) => setSelectedStationOn(e.target.value)}
                 list="stationsOn"
               />
               <datalist id="stationsOn">
@@ -271,17 +318,17 @@ export default function App() {
               </datalist>
             </div>
 
-            {/* Transit Line */}
-            <div>
+            {/* --- Select Line --- */}
+            <div className="mb-4">
               <label className="block text-slate-400 text-sm mb-1">
                 Transit Line
               </label>
               <input
                 type="text"
-                placeholder="Search or select line..."
+                placeholder="Search line..."
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                 value={selectedLine}
-                onChange={(e) => handleLineChange(e.target.value)}
+                onChange={(e) => setSelectedLine(e.target.value)}
                 list="linesList"
               />
               <datalist id="linesList">
@@ -294,8 +341,8 @@ export default function App() {
               </datalist>
             </div>
 
-            {/* Tap Off Station */}
-            <div>
+            {/* --- Tap Off Station --- */}
+            <div className="mb-4">
               <label className="block text-slate-400 text-sm mb-1">
                 Tap Off Station
               </label>
@@ -304,9 +351,7 @@ export default function App() {
                 placeholder="Search or enter station..."
                 className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
                 value={selectedStationOff}
-                onChange={(e) =>
-                  handleStationChange(e.target.value, setSelectedStationOff)
-                }
+                onChange={(e) => setSelectedStationOff(e.target.value)}
                 list="stationsOff"
               />
               <datalist id="stationsOff">
@@ -319,11 +364,16 @@ export default function App() {
               </datalist>
             </div>
 
-            {/* Map + Info */}
+            {/* --- Map + Info --- */}
             <div className="text-sm text-slate-300 mb-2">
-              {pos && pos.lat != null && pos.lon != null
-                ? `📍 ${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)} (±${pos.acc || "?"}m)`
-                : "Getting location..."}
+              {pos && pos.lat != null && pos.lon != null ? (
+                <>
+                  📍 {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)} (±
+                  {pos.acc || "?"}m)
+                </>
+              ) : (
+                "Getting location..."
+              )}
               <br />
               {nearest ? (
                 <span>
@@ -334,15 +384,19 @@ export default function App() {
               )}
             </div>
 
-            {pos?.lat && pos?.lon ? (
-              <MapView key={`${pos.lat}-${pos.lon}`} pos={pos} nearest={nearest} />
+            {pos && pos.lat && pos.lon ? (
+              <MapView
+                key={`${pos.lat}-${pos.lon}`}
+                pos={pos}
+                nearest={nearest}
+              />
             ) : (
               <div className="text-slate-400 text-sm text-center py-2">
                 Waiting for location permission…
               </div>
             )}
 
-            {/* Tap Buttons */}
+            {/* --- Tap Buttons --- */}
             <div className="flex justify-center gap-3 mt-3">
               <button
                 onClick={() => handleTap("on")}
@@ -358,7 +412,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Sync */}
+            {/* --- Sync + Status --- */}
             <div className="flex justify-between items-center mt-3 text-sm">
               <button
                 onClick={syncNow}
@@ -379,7 +433,7 @@ export default function App() {
         </>
       )}
 
-      {/* SUMMARY TAB */}
+      {/* --- SUMMARY TAB --- */}
       {activeTab === "summary" && (
         <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl shadow-lg border border-slate-700">
           <h2 className="text-xl font-bold mb-3">📊 My Trips Summary</h2>
@@ -391,10 +445,10 @@ export default function App() {
             <table className="w-full text-sm text-slate-200 border-collapse">
               <thead>
                 <tr className="border-b border-slate-700">
-                  <th>🕓 Time</th>
-                  <th>Action</th>
-                  <th>Station</th>
-                  <th>Line</th>
+                  <th className="text-left py-1">🕓 Time</th>
+                  <th className="text-left py-1">Action</th>
+                  <th className="text-left py-1">Station</th>
+                  <th className="text-left py-1">Line</th>
                 </tr>
               </thead>
               <tbody>
@@ -403,7 +457,7 @@ export default function App() {
                   .slice(-10)
                   .reverse()
                   .map((r) => (
-                    <tr key={r.id}>
+                    <tr key={r.id} className="border-b border-slate-800">
                       <td>{new Date(r.timestamp).toLocaleTimeString()}</td>
                       <td>{r.action}</td>
                       <td>{r.station}</td>
