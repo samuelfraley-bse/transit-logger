@@ -412,104 +412,94 @@ export default function App() {
         </>
       )}
 
-      {activeTab === "summary" && (
+  {activeTab === "summary" && (
   <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
     <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
 
     {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
       <p className="text-slate-400">No trips yet.</p>
     ) : (
-      (() => {
-        // Group logs by journey_id
-        const journeys = {};
-        serverLogs
+      <div className="space-y-4">
+        {serverLogs
           .filter((r) => r.user_id === user.id)
-          .forEach((log) => {
-            if (!journeys[log.journey_id]) journeys[log.journey_id] = {};
-            if (log.action === "on") journeys[log.journey_id].on = log;
-            if (log.action === "off") journeys[log.journey_id].off = log;
-          });
+          .slice(-20)
+          .reverse()
+          .map((r, i, arr) => {
+            // Match up on/off pairs by journey_id
+            const journeyLogs = arr.filter((j) => j.journey_id === r.journey_id);
+            const on = journeyLogs.find((j) => j.action === "on");
+            const off = journeyLogs.find((j) => j.action === "off");
 
-        // Convert to array
-        const journeyList = Object.values(journeys)
-          .sort(
-            (a, b) =>
-              new Date(b.on?.timestamp || b.off?.timestamp) -
-              new Date(a.on?.timestamp || a.off?.timestamp)
-          )
-          .slice(0, 20);
+            if (!on) return null; // skip incomplete journey
 
-        if (journeyList.length === 0)
-          return <p className="text-slate-400">No completed trips yet.</p>;
+            const startTime = new Date(on.timestamp);
+            const endTime = off ? new Date(off.timestamp) : null;
+            const durationMin = endTime
+              ? Math.max(0, Math.round((endTime - startTime) / 60000))
+              : null;
 
-        return (
-          <div className="space-y-3">
-            {journeyList.map((j, i) => {
-              const start = j.on?.timestamp
-                ? new Date(j.on.timestamp)
-                : null;
-              const end = j.off?.timestamp
-                ? new Date(j.off.timestamp)
-                : null;
-              const duration =
-                start && end
-                  ? Math.round((end - start) / 60000)
-                  : null;
+            const dateLabel = startTime.toLocaleDateString([], {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            });
 
-              return (
-                <div
-                  key={i}
-                  className="p-4 bg-slate-800 rounded-2xl border border-slate-700 shadow-sm"
-                >
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-semibold text-lg text-blue-400">
-                      {j.on?.boarded_line || j.off?.exited_line || "Line ?"}
+            return (
+              <div
+                key={`${r.journey_id}-${i}`}
+                className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-sm"
+              >
+                {/* Date Header */}
+                <div className="text-sm text-slate-400 mb-2">{dateLabel}</div>
+
+                {/* Trip Flow */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1">
+                  <div>
+                    <span className="font-semibold text-slate-100">
+                      🚇 {on.station}
                     </span>
-                    {duration && (
-                      <span className="text-sm text-slate-400">
-                        🕒 {duration} min
-                      </span>
+                    {off && (
+                      <>
+                        <span className="text-slate-500 mx-2">→</span>
+                        <span className="font-semibold text-slate-100">
+                          🏁 {off.station}
+                        </span>
+                      </>
                     )}
                   </div>
+                  <div className="text-xs text-slate-400 mt-1 sm:mt-0">
+                    {startTime.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {off &&
+                      `–${endTime.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`}
+                  </div>
+                </div>
 
-                  <p className="text-slate-200">
-                    🚇 <strong>{j.on?.station || "?"}</strong>
-                  </p>
-                  <p className="text-slate-200">
-                    🏁 <strong>{j.off?.station || "?"}</strong>
-                  </p>
-
-                  <p className="text-xs text-slate-400 mt-2">
-                    {start
-                      ? start.toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "?"}{" "}
-                    →{" "}
-                    {end
-                      ? end.toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "?"}
-                  </p>
-
-                  {j.on?.car && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      🚘 Car {j.on.car}
+                {/* Meta Info */}
+                <div className="text-xs text-slate-400 space-y-1 mt-2">
+                  {on.boarded_line && (
+                    <p>Line: {on.boarded_line}</p>
+                  )}
+                  {off?.exited_line && (
+                    <p>Exited Line: {off.exited_line}</p>
+                  )}
+                  {durationMin !== null && (
+                    <p>
+                      ⏱️ <strong>Duration:</strong> {durationMin} min
                     </p>
                   )}
-
-                  <p className="text-xs text-slate-500 mt-1">
-                    Journey ID: {j.on?.journey_id || j.off?.journey_id}
-                  </p>
+                  <p>Journey ID: {r.journey_id}</p>
                 </div>
-              );
-            })}
-          </div>
-        );
-      })()
+              </div>
+            );
+          })}
+      </div>
     )}
   </div>
 )}
