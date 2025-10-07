@@ -2,22 +2,21 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-export default function MapView({ position, stations = [], nearest }) {
+export default function MapView({ position, stations = [], nearest, tripState }) {
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
   const stationLayerRef = useRef(null);
 
-  // --- Initialize the map ONCE ---
+  // --- Initialize map once ---
   useEffect(() => {
-    if (mapRef.current) return; // already created
+    if (mapRef.current) return;
 
     mapRef.current = L.map("map", {
-      center: [41.3851, 2.1734], // Barcelona default
+      center: [41.3851, 2.1734],
       zoom: 13,
       zoomControl: true,
     });
 
-    // 🗺️ CartoDB Dark Matter (HTTPS-safe)
     L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
       {
@@ -28,7 +27,6 @@ export default function MapView({ position, stations = [], nearest }) {
       }
     ).addTo(mapRef.current);
 
-    // create empty layer groups
     userMarkerRef.current = L.layerGroup().addTo(mapRef.current);
     stationLayerRef.current = L.layerGroup().addTo(mapRef.current);
 
@@ -38,40 +36,86 @@ export default function MapView({ position, stations = [], nearest }) {
     };
   }, []);
 
-  // --- Update user marker when position changes ---
+  // --- Inject pulsing CSS once ---
+  useEffect(() => {
+    if (document.getElementById("pulse-style")) return;
+    const style = document.createElement("style");
+    style.id = "pulse-style";
+    style.innerHTML = `
+      @keyframes pulseRing {
+        0% { transform: scale(0.6); opacity: 0.9; }
+        70% { transform: scale(1.8); opacity: 0; }
+        100% { opacity: 0; }
+      }
+
+      .pulse-wrapper {
+        position: relative;
+        width: 16px;
+        height: 16px;
+      }
+
+      .pulse-ring {
+        position: absolute;
+        top: 0; left: 0;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: rgba(0, 212, 255, 0.4);
+        animation: pulseRing 2s infinite ease-out;
+      }
+
+      .pulse-core {
+        position: absolute;
+        top: 4px; left: 4px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00d4ff;
+        box-shadow: 0 0 10px rgba(0, 212, 255, 0.9);
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  // --- Update user marker ---
   useEffect(() => {
     if (!mapRef.current || !position?.lat || !position?.lon) return;
-
     const map = mapRef.current;
     const layer = userMarkerRef.current;
     layer.clearLayers();
 
-    // user location marker
-    L.circleMarker([position.lat, position.lon], {
-      radius: 8,
-      color: "#00d4ff",
-      fillColor: "#00d4ff",
-      fillOpacity: 0.8,
-    }).addTo(layer);
+    // 🔵 Composite marker: glowing ring + core
+    const markerHTML = `
+      <div class="pulse-wrapper">
+        <div class="pulse-ring"></div>
+        <div class="pulse-core"></div>
+      </div>
+    `;
+    const div = L.divIcon({
+      className: "",
+      html: markerHTML,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
 
-    // accuracy circle
+    L.marker([position.lat, position.lon], { icon: div }).addTo(layer);
+
+    // Optional accuracy circle
     if (position.acc) {
       L.circle([position.lat, position.lon], {
         radius: position.acc,
         color: "#00d4ff33",
         fillColor: "#00d4ff22",
-        fillOpacity: 0.2,
+        fillOpacity: 0.15,
       }).addTo(layer);
     }
 
-    // pan smoothly to new position
     map.setView([position.lat, position.lon], map.getZoom());
   }, [position]);
 
-  // --- Update stations and nearest highlight ---
+  // --- Station markers ---
   useEffect(() => {
     if (!mapRef.current || stations.length === 0) return;
-
     const layer = stationLayerRef.current;
     layer.clearLayers();
 

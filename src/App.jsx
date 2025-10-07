@@ -361,7 +361,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- LOG TAB --- */}
+   {/* --- LOG TAB --- */}
 {activeTab === "log" && (
   <>
     <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
@@ -373,7 +373,9 @@ export default function App() {
             {nearest?.name ? (
               <>
                 <span className="font-semibold text-white">📍 Nearest Station:</span>{" "}
-                <span className="text-green-400 font-medium">{nearest.name}</span>
+                <span className="font-bold shimmer text-green-400">
+                  {nearest.name}
+                </span>
               </>
             ) : (
               <span className="text-slate-400 animate-pulse">
@@ -430,10 +432,16 @@ export default function App() {
                 </span>
               </p>
 
-            
+              <p className="text-sm text-slate-400 mt-2">
+                ⏱️ Started{" "}
+                <span className="text-slate-200 font-medium">
+                  {Math.floor(elapsed / 60)}m {elapsed % 60}s
+                </span>{" "}
+                ago
+              </p>
 
               <div className="mt-4 border-t border-slate-700 pt-3 text-xs text-slate-500 italic">
-                Still tracking your journey... 🚏
+                Still tracking your journey... we’ll wait for your tap off 🚏
               </div>
             </div>
           )}
