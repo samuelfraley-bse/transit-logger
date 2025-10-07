@@ -420,17 +420,31 @@ export default function App() {
       <p className="text-slate-400">No trips yet.</p>
     ) : (
       <div className="space-y-4">
-        {serverLogs
-          .filter((r) => r.user_id === user.id)
-          .slice(-20)
-          .reverse()
-          .map((r, i, arr) => {
-            // Match up on/off pairs by journey_id
-            const journeyLogs = arr.filter((j) => j.journey_id === r.journey_id);
-            const on = journeyLogs.find((j) => j.action === "on");
-            const off = journeyLogs.find((j) => j.action === "off");
+        {(() => {
+          // Group logs by journey_id
+          const journeys = Object.values(
+            serverLogs
+              .filter((r) => r.user_id === user.id)
+              .reduce((acc, log) => {
+                if (!log.journey_id) return acc;
+                if (!acc[log.journey_id]) acc[log.journey_id] = [];
+                acc[log.journey_id].push(log);
+                return acc;
+              }, {})
+          );
 
-            if (!on) return null; // skip incomplete journey
+          // Sort journeys by most recent timestamp
+          journeys.sort((a, b) => {
+            const aTime = Math.max(...a.map((x) => new Date(x.timestamp).getTime()));
+            const bTime = Math.max(...b.map((x) => new Date(x.timestamp).getTime()));
+            return bTime - aTime;
+          });
+
+          return journeys.map((logs, i) => {
+            const on = logs.find((l) => l.action === "on");
+            const off = logs.find((l) => l.action === "off");
+
+            if (!on) return null;
 
             const startTime = new Date(on.timestamp);
             const endTime = off ? new Date(off.timestamp) : null;
@@ -447,7 +461,7 @@ export default function App() {
 
             return (
               <div
-                key={`${r.journey_id}-${i}`}
+                key={on.journey_id || i}
                 className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-sm"
               >
                 {/* Date Header */}
@@ -483,22 +497,19 @@ export default function App() {
 
                 {/* Meta Info */}
                 <div className="text-xs text-slate-400 space-y-1 mt-2">
-                  {on.boarded_line && (
-                    <p>Line: {on.boarded_line}</p>
-                  )}
-                  {off?.exited_line && (
-                    <p>Exited Line: {off.exited_line}</p>
-                  )}
+                  {on.boarded_line && <p>Line: {on.boarded_line}</p>}
+                  {off?.exited_line && <p>Exited Line: {off.exited_line}</p>}
                   {durationMin !== null && (
                     <p>
                       ⏱️ <strong>Duration:</strong> {durationMin} min
                     </p>
                   )}
-                  <p>Journey ID: {r.journey_id}</p>
+                  <p>Journey ID: {on.journey_id}</p>
                 </div>
               </div>
             );
-          })}
+          });
+        })()}
       </div>
     )}
   </div>
