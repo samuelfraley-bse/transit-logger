@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 Dates follow the **YYYY-MM-DD** format.
 
 ---
+## 🚀 Version 0.3.1 – 2025-10-07
+**Summary Cards** added trip linkage for summary cards, including trip duration and proper ordering
+
 
 ## Version 2.0.0 – 2025-10-07
 **Updated Station and Line Confirmation** Tap On and Tap Off now include confirmation steps for smoother interaction. Prevents stale filter states from previous flow.
