@@ -2,7 +2,7 @@
 import { supabase } from "./supabaseClient.js";
 
 /**
- * Upload unsynced logs to Supabase
+ * Upload unsynced logs to Supabase and maintain journeys table
  */
 export async function postLogs(logs) {
   try {
@@ -10,7 +10,8 @@ export async function postLogs(logs) {
       console.group("🛰️ Uploading Log Entry");
       console.log("Payload being sent:", log);
 
-      const { data, error, status, statusText } = await supabase
+      // 1️⃣ Insert the individual log entry
+      const { data: logData, error: logError } = await supabase
         .from("logs")
         .insert({
           timestamp: new Date(log.timestamp).toISOString(),
@@ -28,11 +29,49 @@ export async function postLogs(logs) {
         })
         .select();
 
-      console.log("Supabase response:", JSON.stringify({ status, statusText, data, error }, null, 2));
+      if (logError) throw logError;
+
+      console.log("✅ Log inserted:", logData);
+
+      // 2️⃣ Update or insert into journeys
+      if (log.action === "on") {
+        // Create a new journey entry
+        const { error: journeyInsertError } = await supabase
+          .from("journeys")
+          .insert([
+            {
+              id: log.journey_id,
+              user_id: log.user_id,
+              email: log.email,
+              start_station: log.station,
+              start_time: log.timestamp,
+              boarded_line: log.boarded_line || null,
+              car: log.car || null,
+            },
+          ]);
+
+        if (journeyInsertError)
+          console.error("⚠️ Journey insert failed:", journeyInsertError);
+        else console.log("🆕 Journey started:", log.journey_id);
+      }
+
+      if (log.action === "off" && log.journey_id) {
+        // Update existing journey to complete it
+        const { error: journeyUpdateError } = await supabase
+          .from("journeys")
+          .update({
+            end_station: log.station,
+            end_time: log.timestamp,
+            exited_line: log.exited_line || null,
+          })
+          .eq("id", log.journey_id);
+
+        if (journeyUpdateError)
+          console.error("⚠️ Journey update failed:", journeyUpdateError);
+        else console.log("🏁 Journey completed:", log.journey_id);
+      }
 
       console.groupEnd();
-
-      if (error) throw error;
     }
 
     return { ok: true };

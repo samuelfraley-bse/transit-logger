@@ -413,56 +413,107 @@ export default function App() {
       )}
 
       {activeTab === "summary" && (
-        <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
-          <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
-          {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
-            <p className="text-slate-400">No trips yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {serverLogs
-                .filter((r) => r.user_id === user.id)
-                .slice(-20)
-                .reverse()
-                .map((r) => (
-                  <div
-                    key={r.id}
-                    className="p-3 bg-slate-800 rounded-xl border border-slate-700"
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold">
-                        {r.action === "on" ? "🚇 Tap On" : "🏁 Tap Off"}
+  <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
+    <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
+
+    {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
+      <p className="text-slate-400">No trips yet.</p>
+    ) : (
+      (() => {
+        // Group logs by journey_id
+        const journeys = {};
+        serverLogs
+          .filter((r) => r.user_id === user.id)
+          .forEach((log) => {
+            if (!journeys[log.journey_id]) journeys[log.journey_id] = {};
+            if (log.action === "on") journeys[log.journey_id].on = log;
+            if (log.action === "off") journeys[log.journey_id].off = log;
+          });
+
+        // Convert to array
+        const journeyList = Object.values(journeys)
+          .sort(
+            (a, b) =>
+              new Date(b.on?.timestamp || b.off?.timestamp) -
+              new Date(a.on?.timestamp || a.off?.timestamp)
+          )
+          .slice(0, 20);
+
+        if (journeyList.length === 0)
+          return <p className="text-slate-400">No completed trips yet.</p>;
+
+        return (
+          <div className="space-y-3">
+            {journeyList.map((j, i) => {
+              const start = j.on?.timestamp
+                ? new Date(j.on.timestamp)
+                : null;
+              const end = j.off?.timestamp
+                ? new Date(j.off.timestamp)
+                : null;
+              const duration =
+                start && end
+                  ? Math.round((end - start) / 60000)
+                  : null;
+
+              return (
+                <div
+                  key={i}
+                  className="p-4 bg-slate-800 rounded-2xl border border-slate-700 shadow-sm"
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold text-lg text-blue-400">
+                      {j.on?.boarded_line || j.off?.exited_line || "Line ?"}
+                    </span>
+                    {duration && (
+                      <span className="text-sm text-slate-400">
+                        🕒 {duration} min
                       </span>
-                      <span className="text-xs text-slate-400">
-                        {new Date(r.timestamp).toLocaleString([], {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-sm text-slate-300">
-                      📍 <strong>{r.station}</strong>
-                    </p>
-                    {r.boarded_line && (
-                      <p className="text-xs text-slate-400">
-                        Boarded Line: {r.boarded_line}
-                      </p>
-                    )}
-                    {r.exited_line && (
-                      <p className="text-xs text-slate-400">
-                        Exited Line: {r.exited_line}
-                      </p>
-                    )}
-                    {r.journey_id && (
-                      <p className="text-xs text-slate-500 mt-1">
-                        Journey ID: {r.journey_id}
-                      </p>
                     )}
                   </div>
-                ))}
-            </div>
-          )}
-        </div>
-      )}
+
+                  <p className="text-slate-200">
+                    🚇 <strong>{j.on?.station || "?"}</strong>
+                  </p>
+                  <p className="text-slate-200">
+                    🏁 <strong>{j.off?.station || "?"}</strong>
+                  </p>
+
+                  <p className="text-xs text-slate-400 mt-2">
+                    {start
+                      ? start.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "?"}{" "}
+                    →{" "}
+                    {end
+                      ? end.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "?"}
+                  </p>
+
+                  {j.on?.car && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      🚘 Car {j.on.car}
+                    </p>
+                  )}
+
+                  <p className="text-xs text-slate-500 mt-1">
+                    Journey ID: {j.on?.journey_id || j.off?.journey_id}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()
+    )}
+  </div>
+)}
+
 
       {/* --- Release Notes Section --- */}
       <div className="max-w-md w-full mt-10 bg-slate-800/60 p-4 rounded-2xl border border-slate-700 text-slate-200">
