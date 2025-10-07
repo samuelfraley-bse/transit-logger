@@ -11,21 +11,16 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export default function App() {
   // --- Auth ---
-  const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
       setUser(session?.user ?? null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-      }
-    );
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -54,7 +49,6 @@ export default function App() {
 
   // --- Core States ---
   const [deviceId, setDeviceId] = useState(null);
-  const [car, setCar] = useState("");
   const [outbox, setOutbox] = useState([]);
   const [serverLogs, setServerLogs] = useState([]);
   const [online, setOnline] = useState(navigator.onLine);
@@ -65,7 +59,6 @@ export default function App() {
   const [activeJourneyId, setActiveJourneyId] = useState(null);
   const [activeTrip, setActiveTrip] = useState(null);
 
-  // --- Confirmation UI ---
   const [tripState, setTripState] = useState("idle"); // idle → startConfirm → active → endConfirm → complete
   const [confirmStation, setConfirmStation] = useState("");
   const [confirmLine, setConfirmLine] = useState("");
@@ -94,7 +87,6 @@ export default function App() {
         setStations(parsed);
         setUniqueStations([...new Set(parsed.map((s) => s.name))]);
         setUniqueLines([...new Set(parsed.map((s) => s.line))]);
-        console.log("✅ Stations loaded:", parsed.length);
       } catch (err) {
         console.error("❌ Failed to load stations:", err);
       }
@@ -115,19 +107,7 @@ export default function App() {
     init();
   }, []);
 
-  // --- Restore Active Trip ---
-  useEffect(() => {
-    async function loadActiveTrip() {
-      const savedTrip = await db.getItem(K.activeTrip);
-      if (savedTrip) {
-        setActiveTrip(savedTrip);
-        setActiveJourneyId(savedTrip.journey_id);
-      }
-    }
-    loadActiveTrip();
-  }, []);
-
-  // --- Online Sync ---
+  // --- Sync ---
   useEffect(() => {
     const set = () => setOnline(navigator.onLine);
     window.addEventListener("online", set);
@@ -137,10 +117,6 @@ export default function App() {
       window.removeEventListener("offline", set);
     };
   }, []);
-
-  useEffect(() => {
-    if (online) syncNow();
-  }, [online]);
 
   async function syncNow() {
     const pending = (await db.getItem(K.outbox)) || [];
@@ -177,7 +153,6 @@ export default function App() {
     setActiveJourneyId(journeyId);
     setTripState("startConfirm");
     setConfirmStation(nearest?.name || "");
-    setConfirmLine("");
   }
 
   async function handleTapEnd() {
@@ -198,13 +173,11 @@ export default function App() {
     await db.setItem(K.pendingOffLog, entry);
     setTripState("endConfirm");
     setConfirmStation(nearest?.name || "");
-    setConfirmLine("");
   }
 
   // --- Confirm Stage ---
   async function confirmTripStage() {
-    const pendingKey =
-      tripState === "startConfirm" ? K.pendingOnLog : K.pendingOffLog;
+    const pendingKey = tripState === "startConfirm" ? K.pendingOnLog : K.pendingOffLog;
     const log = await db.getItem(pendingKey);
     if (!log) return toast.error("No pending log found.");
 
@@ -213,7 +186,6 @@ export default function App() {
       station: confirmStation || "Unknown",
       boarded_line: tripState === "startConfirm" ? confirmLine : null,
       exited_line: tripState === "endConfirm" ? confirmLine : null,
-      car: car || null,
     };
 
     const updated = [...outbox, entry];
@@ -221,28 +193,20 @@ export default function App() {
     setOutbox(updated);
 
     if (tripState === "startConfirm") {
-      await db.setItem(K.activeTrip, {
-        id: entry.timestamp,
-        station: entry.station,
-        startTime: entry.timestamp,
-        journey_id: entry.journey_id,
-      });
+      await db.setItem(K.activeTrip, entry);
       setActiveTrip(entry);
       setTripState("active");
       toast.success("🚇 Trip started!");
     } else {
       await db.removeItem(K.activeTrip);
       setActiveTrip(null);
-      setActiveJourneyId(null);
       setTripState("complete");
       toast.success("🏁 Trip completed!");
+      setTimeout(() => setTripState("idle"), 1000);
     }
   }
 
-  useEffect(() => {
-    fetchRecentLogs().then(setServerLogs).catch(() => {});
-  }, [outbox]);
-
+  // --- Timer ---
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (tripState !== "active") return;
@@ -251,36 +215,44 @@ export default function App() {
     return () => clearInterval(id);
   }, [tripState]);
 
+  // --- Fetch Logs ---
+  useEffect(() => {
+    fetchRecentLogs().then(setServerLogs).catch(() => {});
+  }, [outbox]);
 
   // --- UI ---
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center"
+      >
         <div className="text-center space-y-4">
           <h1 className="text-2xl font-bold">🚇 Transit Logger</h1>
           <p className="text-slate-400">Please log in to continue.</p>
-          <button
+          <motion.button
+            whileTap={{ scale: 0.95 }}
             onClick={handleLogin}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
           >
             Log In with Google
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-6 px-4">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-6 px-4"
+    >
       {/* Header */}
       <div className="flex justify-between w-full max-w-md mb-4">
         <span className="text-slate-300">👋 {user.email}</span>
-          {tripState === "active" && (
-            <div className="flex items-center text-green-400 text-sm mb-2 animate-pulse">
-              <span className="mr-2">🟢</span> Trip in progress
-            </div>
-)}
-
         <button
           onClick={handleLogout}
           className="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
@@ -288,9 +260,6 @@ export default function App() {
           Logout
         </button>
       </div>
-
-      {/* Debug trip state */}
-      <div className="text-xs text-slate-500 mb-2">State: {tripState}</div>
 
       {/* Tabs */}
       <div className="flex flex-col sm:flex-row justify-center mb-4 gap-3 w-full max-w-md">
@@ -312,164 +281,171 @@ export default function App() {
         </button>
       </div>
 
-      {/* Confirmation Card */}
-      {["startConfirm", "endConfirm"].includes(tripState) && (
-        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 mb-6">
-          <h2 className="text-lg font-bold mb-2">
-            {tripState === "startConfirm"
-              ? "🚇 Confirm Start Station"
-              : "🏁 Confirm Exit Station"}
-          </h2>
-          <div className="mb-3">
-            <label className="block text-slate-400 text-sm mb-1">Station</label>
-            <select
-              value={confirmStation}
-              onChange={(e) => setConfirmStation(e.target.value)}
-              className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-            >
-              <option value="">Select station...</option>
-              {uniqueStations.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mb-3">
-            <label className="block text-slate-400 text-sm mb-1">Line</label>
-            <select
-              value={confirmLine}
-              onChange={(e) => setConfirmLine(e.target.value)}
-              className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-            >
-              <option value="">Select line...</option>
-              {uniqueLines.map((line) => (
-                <option key={line} value={line}>
-                  {line}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={confirmTripStage}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 font-semibold"
+      <AnimatePresence mode="wait">
+        {activeTab === "log" && (
+          <motion.div
+            key="log"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.4 }}
+            className="w-full flex flex-col items-center"
           >
-            Confirm
-          </button>
-        </div>
-      )}
+            <AnimatePresence mode="wait">
+              {/* Tap On */}
+              {tripState === "idle" && (
+                <motion.div
+                  key="idle"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3 text-center"
+                >
+                  <p className="text-slate-400 text-sm">
+                    📍 Nearest Station:{" "}
+                    <span className="text-white font-medium">{nearest?.name || "Detecting..."}</span>
+                  </p>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleTapStart}
+                    className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+                  >
+                    🚇 Tap On
+                  </motion.button>
+                </motion.div>
+              )}
 
-   {/* --- LOG TAB --- */}
-{activeTab === "log" && (
-  <>
-    <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
+              {/* Confirmation */}
+              {["startConfirm", "endConfirm"].includes(tripState) && (
+                <motion.div
+                  key="confirm"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 mb-6"
+                >
+                  <h2 className="text-lg font-bold mb-2">
+                    {tripState === "startConfirm"
+                      ? "🚇 Confirm Start Station"
+                      : "🏁 Confirm Exit Station"}
+                  </h2>
 
-      {/* Idle: Show nearest station info and Tap On */}
-      {tripState === "idle" && (
-        <div className="space-y-3 text-center">
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-3 text-slate-300">
-            {nearest?.name ? (
-              <>
-                <span className="font-semibold text-white">📍 Nearest Station:</span>{" "}
-                <span className="font-bold shimmer text-green-400">
-                  {nearest.name}
-                </span>
-              </>
+                  <div className="mb-3">
+                    <label className="block text-slate-400 text-sm mb-1">Station</label>
+                    <select
+                      value={confirmStation}
+                      onChange={(e) => setConfirmStation(e.target.value)}
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                    >
+                      <option value="">Select station...</option>
+                      {uniqueStations.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="block text-slate-400 text-sm mb-1">Line</label>
+                    <select
+                      value={confirmLine}
+                      onChange={(e) => setConfirmLine(e.target.value)}
+                      className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+                    >
+                      <option value="">Select line...</option>
+                      {uniqueLines.map((line) => (
+                        <option key={line} value={line}>
+                          {line}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={confirmTripStage}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 font-semibold"
+                  >
+                    Confirm
+                  </motion.button>
+                </motion.div>
+              )}
+
+              {/* Trip In Progress */}
+              {tripState === "active" && activeTrip && (
+                <motion.div
+                  key="active"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.5 }}
+                  className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 mt-4 text-center"
+                >
+                  <h2 className="text-lg font-semibold mb-2 text-yellow-300 animate-pulse">
+                    🟢 Trip in Progress
+                  </h2>
+                  <p className="text-sm text-slate-400 mb-1">
+                    From <span className="font-medium text-slate-200">{activeTrip.station}</span>
+                  </p>
+                  <p className="text-sm text-slate-400 mb-2">
+                    Duration: <span className="font-mono text-slate-200">{elapsed}s</span>
+                  </p>
+
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleTapEnd}
+                    className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full mt-3"
+                  >
+                    🏁 Tap Off
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.6 }}
+              className="max-w-md w-full mt-6"
+            >
+              <MapView position={pos} stations={stations} nearest={nearest} tripState={tripState} />
+            </motion.div>
+          </motion.div>
+        )}
+
+        {activeTab === "summary" && (
+          <motion.div
+            key="summary"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.5 }}
+            className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6"
+          >
+            <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
+
+            {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
+              <p className="text-slate-400">No trips yet.</p>
             ) : (
-              <span className="text-slate-400 animate-pulse">
-                Detecting nearest station...
-              </span>
-            )}
-          </div>
-
-          <button
-            onClick={handleTapStart}
-            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full shadow-md"
-          >
-            🚇 Tap On
-          </button>
-        </div>
-      )}
-
-      {/* Active: Show Trip Progress + Tap Off */}
-      {tripState === "active" && (
-        <>
-          <button
-            onClick={handleTapEnd}
-            className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full shadow-md"
-          >
-            🏁 Tap Off
-          </button>
-
-          {/* Progress Card */}
-          {activeTrip && (
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 mt-4 text-center shadow-lg relative overflow-hidden">
-              {/* Animated pulsing train */}
-              <div className="relative flex justify-center mb-4">
-                <div className="absolute w-16 h-16 rounded-full bg-green-500/20 animate-ping"></div>
-                <div className="relative w-16 h-16 flex items-center justify-center rounded-full bg-green-500 text-white text-3xl shadow-md">
-                  🚇
-                </div>
-              </div>
-
-              <h2 className="text-lg font-semibold text-green-400 mb-2 tracking-wide">
-                Trip in Progress
-              </h2>
-
-              <p className="text-sm text-slate-400 mb-1">
-                From{" "}
-                <span className="font-medium text-slate-200">
-                  {activeTrip.station || "Unknown"}
-                </span>
-              </p>
-
-              <p className="text-sm text-slate-400 mb-1">
-                Line:{" "}
-                <span className="font-medium text-slate-200">
-                  {activeTrip.boarded_line || "—"}
-                </span>
-              </p>
-
-              <p className="text-sm text-slate-400 mt-2">
-                ⏱️ Started{" "}
-                <span className="text-slate-200 font-medium">
-                  {Math.floor(elapsed / 60)}m {elapsed % 60}s
-                </span>{" "}
-                ago
-              </p>
-
-              <div className="mt-4 border-t border-slate-700 pt-3 text-xs text-slate-500 italic">
-                Still tracking your journey... we’ll wait for your tap off 🚏
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-
-    {/* Map Section */}
-    <div className="max-w-md w-full mt-6">
-      <MapView position={pos} stations={stations} nearest={nearest} />
-    </div>
-  </>
-)}
-
-
-
-
-      {/* --- SUMMARY TAB --- */}
-      {activeTab === "summary" && (
-        <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
-          <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
-
-          {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
-            <p className="text-slate-400">No trips yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {(() => {
-                const journeys = Object.values(
+              <motion.div
+                initial="hidden"
+                animate="visible"
+                variants={{
+                  hidden: { opacity: 1 },
+                  visible: {
+                    opacity: 1,
+                    transition: { staggerChildren: 0.1 },
+                  },
+                }}
+                className="space-y-4"
+              >
+                {Object.values(
                   serverLogs
                     .filter((r) => r.user_id === user.id)
                     .reduce((acc, log) => {
@@ -478,19 +454,7 @@ export default function App() {
                       acc[log.journey_id].push(log);
                       return acc;
                     }, {})
-                );
-
-                journeys.sort((a, b) => {
-                  const aTime = Math.max(
-                    ...a.map((x) => new Date(x.timestamp).getTime())
-                  );
-                  const bTime = Math.max(
-                    ...b.map((x) => new Date(x.timestamp).getTime())
-                  );
-                  return bTime - aTime;
-                });
-
-                return journeys.map((logs, i) => {
+                ).map((logs, i) => {
                   const on = logs.find((l) => l.action === "on");
                   const off = logs.find((l) => l.action === "off");
                   if (!on) return null;
@@ -501,77 +465,45 @@ export default function App() {
                     ? Math.max(0, Math.round((endTime - startTime) / 60000))
                     : null;
 
-                  const dateLabel = startTime.toLocaleDateString([], {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  });
-
                   return (
-                    <div
-                      key={on.journey_id || i}
+                    <motion.div
+                      key={i}
+                      variants={{
+                        hidden: { opacity: 0, y: 10 },
+                        visible: { opacity: 1, y: 0 },
+                      }}
                       className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-sm"
                     >
-                      <div className="text-sm text-slate-400 mb-2">
-                        {dateLabel}
+                      <div className="flex justify-between text-sm text-slate-400 mb-2">
+                        <span>{on.station}</span>
+                        {off && <span>→ {off.station}</span>}
                       </div>
-
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1">
-                        <div>
-                          <span className="font-semibold text-slate-100">
-                            🚇 {on.station}
-                          </span>
-                          {off && (
-                            <>
-                              <span className="text-slate-500 mx-2">→</span>
-                              <span className="font-semibold text-slate-100">
-                                🏁 {off.station}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-1 sm:mt-0">
-                          {startTime.toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                          {off &&
-                            `–${endTime.toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}`}
-                        </div>
-                      </div>
-
-                      <div className="text-xs text-slate-400 space-y-1 mt-2">
-                        {on.boarded_line && <p>Line: {on.boarded_line}</p>}
-                        {off?.exited_line && <p>Exited Line: {off.exited_line}</p>}
-                        {durationMin !== null && (
-                          <p>
-                            ⏱️ <strong>Duration:</strong> {durationMin} min
-                          </p>
-                        )}
-                        <p>Journey ID: {on.journey_id}</p>
-                      </div>
-                    </div>
+                      <p className="text-xs text-slate-400">
+                        {durationMin !== null && `⏱️ ${durationMin} min`}
+                      </p>
+                    </motion.div>
                   );
-                });
-              })()}
-            </div>
-          )}
-        </div>
-      )}
+                })}
+              </motion.div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* --- RELEASE NOTES --- */}
-      <div className="max-w-md w-full mt-10 bg-slate-800/60 p-4 rounded-2xl border border-slate-700 text-slate-200">
+      {/* Release Notes */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.4 }}
+        className="max-w-md w-full mt-10 bg-slate-800/60 p-4 rounded-2xl border border-slate-700 text-slate-200"
+      >
         <h2 className="text-xl font-bold mb-4">📝 Release Notes</h2>
         <div className="prose prose-invert text-sm max-w-none">
           <ReactMarkdown>{changelog}</ReactMarkdown>
         </div>
-      </div>
+      </motion.div>
 
       <Toaster position="bottom-center" />
-    </div>
+    </motion.div>
   );
 }
