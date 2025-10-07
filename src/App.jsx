@@ -118,20 +118,58 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+  if (online) syncNow();
+}, [online]);
+
+// 🚀 Also run sync immediately on app startup
+useEffect(() => {
+  syncNow();
+}, []);
+
   async function syncNow() {
-    const pending = (await db.getItem(K.outbox)) || [];
-    if (pending.length === 0) return;
-    try {
-      const res = await postLogs(pending);
-      if (res.ok) {
-        await db.setItem(K.outbox, []);
-        setOutbox([]);
-        toast.success("✅ Synced logs!");
-      } else toast.error("❌ Server rejected logs");
-    } catch {
-      toast.error("⚠️ Sync failed");
-    }
+  const pending = (await db.getItem(K.outbox)) || [];
+  if (pending.length === 0) {
+    toast("✅ All trips synced — nothing pending.");
+    return;
   }
+
+  toast("🔄 Syncing pending trips...");
+  try {
+    const res = await postLogs(pending);
+    if (res.ok) {
+      await db.setItem(K.outbox, []);
+      setOutbox([]);
+      toast.success("✅ Synced logs!");
+    } else {
+      toast.error("❌ Server rejected logs");
+    }
+  } catch {
+    toast.error("⚠️ Sync failed");
+  }
+}
+async function syncNow() {
+  const pending = (await db.getItem(K.outbox)) || [];
+  if (pending.length === 0) {
+    toast("✅ All trips synced — nothing pending.");
+    return;
+  }
+
+  toast("🔄 Syncing pending trips...");
+  try {
+    const res = await postLogs(pending);
+    if (res.ok) {
+      await db.setItem(K.outbox, []);
+      setOutbox([]);
+      toast.success("✅ Synced logs!");
+    } else {
+      toast.error("❌ Server rejected logs");
+    }
+  } catch {
+    toast.error("⚠️ Sync failed");
+  }
+}
+
 
   // --- Tap Start / End ---
   async function handleTapStart() {
@@ -507,3 +545,4 @@ export default function App() {
     </motion.div>
   );
 }
+
