@@ -5,6 +5,14 @@ Dates follow the **YYYY-MM-DD** format.
 
 ---
 
+## Version 2.0.0 – 2025-10-07
+**Updated Station and Line Confirmation** Tap On and Tap Off now include confirmation steps for smoother interaction. Prevents stale filter states from previous flow.
+**New In-Progress Screen** Displays active trip status, start station, selected line, and live timer until Tap Off.
+**Updated UI Experience** Added animated transitions between trip states and smoother switching between tabs.
+**Enhanced Map Visuals** Introduced pulsing user location marker and clearer nearest-station highlights.
+**Developer Notes** Refactored trip-state handling, improved Supabase sync reliability, optimized nearest-station detection, and integrated Framer Motion for transitions.
+
+
 ## 🚀 Version 0.3.0 – 2025-10-06
 
 ### ✨ New Features
