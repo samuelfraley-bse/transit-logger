@@ -7,6 +7,7 @@ import { supabase } from "./supabaseClient.js";
 import MapView from "./components/MapView.jsx";
 import toast, { Toaster } from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function App() {
   // --- Auth ---
@@ -274,6 +275,12 @@ export default function App() {
       {/* Header */}
       <div className="flex justify-between w-full max-w-md mb-4">
         <span className="text-slate-300">👋 {user.email}</span>
+          {tripState === "active" && (
+            <div className="flex items-center text-green-400 text-sm mb-2 animate-pulse">
+              <span className="mr-2">🟢</span> Trip in progress
+            </div>
+)}
+
         <button
           onClick={handleLogout}
           className="text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-lg"
@@ -354,62 +361,93 @@ export default function App() {
         </div>
       )}
 
-      {/* --- LOG TAB --- */}
-      {activeTab === "log" && (
+   {/* --- LOG TAB --- */}
+{activeTab === "log" && (
+  <>
+    <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
+
+      {/* Idle: Show nearest station info and Tap On */}
+      {tripState === "idle" && (
+        <div className="space-y-3">
+          <div className="text-center text-slate-400 text-sm bg-slate-800 border border-slate-700 rounded-xl p-3">
+            {nearest?.name ? (
+              <>
+                <span className="text-slate-300 font-semibold">📍 Nearest Station:</span>{" "}
+                <span className="text-white font-medium">{nearest.name}</span>
+              </>
+            ) : (
+              <span>Detecting nearest station...</span>
+            )}
+          </div>
+
+          <button
+            onClick={handleTapStart}
+            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+          >
+            🚇 Tap On
+          </button>
+        </div>
+      )}
+
+      {/* Active: Show Trip Progress + Tap Off */}
+      {tripState === "active" && (
         <>
-          <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
-            {tripState === "idle" && (
-              <button
-                onClick={handleTapStart}
-                className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
-              >
-                🚇 Tap On
-              </button>
-            )}
+          <button
+            onClick={handleTapEnd}
+            className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+          >
+            🏁 Tap Off
+          </button>
 
-            {tripState === "active" && (
-              <button
-                onClick={handleTapEnd}
-                className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
-              >
-                🏁 Tap Off
-              </button>
-            )}
-            {tripState === "active" && activeTrip && (
-  <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 mt-4 text-center animate-pulse">
-    <h2 className="text-lg font-semibold mb-2 text-yellow-300">
-      🟢 Trip in Progress
-    </h2>
+          {/* Progress Card */}
+          {activeTrip && (
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 mt-4 text-center animate-pulse">
+              <h2 className="text-lg font-semibold mb-2 text-yellow-300">
+                🟢 Trip in Progress
+              </h2>
 
-    <p className="text-sm text-slate-400 mb-1">
-      From <span className="font-medium text-slate-200">{activeTrip.station}</span>
-    </p>
+              <p className="text-sm text-slate-400 mb-1">
+                From{" "}
+                <span className="font-medium text-slate-200">
+                  {activeTrip.station || "Unknown"}
+                </span>
+              </p>
 
-    <p className="text-sm text-slate-400 mb-1">
-      Line: <span className="font-medium text-slate-200">{activeTrip.boarded_line || "—"}</span>
-    </p>
+              <p className="text-sm text-slate-400 mb-1">
+                Line:{" "}
+                <span className="font-medium text-slate-200">
+                  {activeTrip.boarded_line || "—"}
+                </span>
+              </p>
 
-    <p className="text-sm text-slate-400 mb-2">
-      Duration: <span className="font-mono text-slate-200">{Math.floor(elapsed / 60)}m {elapsed % 60}s</span>
-    </p>
+              <p className="text-sm text-slate-400 mb-2">
+                Duration:{" "}
+                <span className="font-mono text-slate-200">
+                  {Math.floor(elapsed / 60)}m {elapsed % 60}s
+                </span>
+              </p>
 
-    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-      <div
-        className="bg-yellow-400 h-full transition-all duration-1000 ease-linear"
-        style={{ width: `${(elapsed % 60) * (100 / 60)}%` }}
-      />
-    </div>
-  </div>
-)}
-
-          </div>
-
-          {/* Map Section */}
-          <div className="max-w-md w-full mt-6">
-            <MapView position={pos} stations={stations} nearest={nearest} />
-          </div>
+              {/* Animated progress bar */}
+              <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="bg-yellow-400 h-full transition-all duration-1000 ease-linear"
+                  style={{ width: `${(elapsed % 60) * (100 / 60)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </>
       )}
+    </div>
+
+    {/* Map Section */}
+    <div className="max-w-md w-full mt-6">
+      <MapView position={pos} stations={stations} nearest={nearest} />
+    </div>
+  </>
+)}
+
+
 
       {/* --- SUMMARY TAB --- */}
       {activeTab === "summary" && (
