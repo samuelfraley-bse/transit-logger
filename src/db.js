@@ -7,10 +7,12 @@ export const db = localforage.createInstance({
 });
 
 export const K = {
-  deviceId: "device-id",
+  deviceId: "deviceId",
+  activeTrip: "activeTrip",
   outbox: "outbox",
+  pendingOnLog: "pendingOnLog",   
+  pendingOffLog: "pendingOffLog", 
 };
-
 export function uid() {
   return Math.random().toString(36).substring(2, 10);
 }

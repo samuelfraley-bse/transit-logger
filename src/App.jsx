@@ -30,15 +30,12 @@ export default function App() {
   }, []);
 
   async function handleLogin() {
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: window.location.origin, // ✅ keeps you on localhost or production automatically
-    },
-  });
-
-  if (error) toast.error("Login failed: " + error.message);
-}
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) toast.error("Login failed: " + error.message);
+  }
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -62,14 +59,15 @@ export default function App() {
   const [online, setOnline] = useState(navigator.onLine);
   const [activeTab, setActiveTab] = useState("log");
   const [stations, setStations] = useState([]);
-  const [searchOn, setSearchOn] = useState("");
-  const [searchOff, setSearchOff] = useState("");
-  const [selectedStationOn, setSelectedStationOn] = useState("");
-  const [selectedStationOff, setSelectedStationOff] = useState("");
-  const [selectedLineOn, setSelectedLineOn] = useState("");
-  const [selectedLineOff, setSelectedLineOff] = useState("");
-  const [activeTrip, setActiveTrip] = useState(null);
+  const [uniqueStations, setUniqueStations] = useState([]);
+  const [uniqueLines, setUniqueLines] = useState([]);
   const [activeJourneyId, setActiveJourneyId] = useState(null);
+  const [activeTrip, setActiveTrip] = useState(null);
+
+  // --- Confirmation UI ---
+  const [tripState, setTripState] = useState("idle"); // idle → startConfirm → active → endConfirm → complete
+  const [confirmStation, setConfirmStation] = useState("");
+  const [confirmLine, setConfirmLine] = useState("");
 
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
@@ -87,14 +85,14 @@ export default function App() {
         const lines = cleanCsv.split("\n").slice(1);
         const parsed = lines
           .map((row) => {
-            const [lng, lat, type, line, name] = row
-              .split(",")
-              .map((v) => v.trim());
+            const [lng, lat, type, line, name] = row.split(",").map((v) => v.trim());
             if (!line || !name || isNaN(+lat) || isNaN(+lng)) return null;
             return { lng: +lng, lat: +lat, type, line, name };
           })
           .filter(Boolean);
         setStations(parsed);
+        setUniqueStations([...new Set(parsed.map((s) => s.name))]);
+        setUniqueLines([...new Set(parsed.map((s) => s.line))]);
         console.log("✅ Stations loaded:", parsed.length);
       } catch (err) {
         console.error("❌ Failed to load stations:", err);
@@ -116,7 +114,7 @@ export default function App() {
     init();
   }, []);
 
-  // --- Restore Active Trip on Reload ---
+  // --- Restore Active Trip ---
   useEffect(() => {
     async function loadActiveTrip() {
       const savedTrip = await db.getItem(K.activeTrip);
@@ -128,7 +126,7 @@ export default function App() {
     loadActiveTrip();
   }, []);
 
-  // --- Online/Offline Sync ---
+  // --- Online Sync ---
   useEffect(() => {
     const set = () => setOnline(navigator.onLine);
     window.addEventListener("online", set);
@@ -158,52 +156,84 @@ export default function App() {
     }
   }
 
-  // --- Tap Logic ---
-  async function handleTap(action) {
+  // --- Tap Start / End ---
+  async function handleTapStart() {
     if (!user) return toast.error("Please sign in first.");
 
     const journeyId = activeJourneyId || uid();
-    const station =
-      action === "on"
-        ? selectedStationOn || "Unknown"
-        : selectedStationOff || "Unknown";
-    const line =
-      action === "on" ? selectedLineOn || null : selectedLineOff || null;
+    const entry = {
+      timestamp: new Date().toISOString(),
+      deviceId,
+      user_id: user.id,
+      email: user.email,
+      action: "on",
+      lat: pos?.lat,
+      lon: pos?.lon,
+      journey_id: journeyId,
+    };
+
+    await db.setItem(K.pendingOnLog, entry);
+    setActiveJourneyId(journeyId);
+    setTripState("startConfirm");
+    setConfirmStation(nearest?.name || "");
+    setConfirmLine("");
+  }
+
+  async function handleTapEnd() {
+    if (!user) return toast.error("Please sign in first.");
+    if (!activeJourneyId) return toast.error("No active trip found.");
 
     const entry = {
       timestamp: new Date().toISOString(),
       deviceId,
       user_id: user.id,
       email: user.email,
-      car: car || null,
-      action,
-      station,
+      action: "off",
       lat: pos?.lat,
       lon: pos?.lon,
-      boarded_line: action === "on" ? line : null,
-      exited_line: action === "off" ? line : null,
-      journey_id: journeyId,
+      journey_id: activeJourneyId,
+    };
+
+    await db.setItem(K.pendingOffLog, entry);
+    setTripState("endConfirm");
+    setConfirmStation(nearest?.name || "");
+    setConfirmLine("");
+  }
+
+  // --- Confirm Stage ---
+  async function confirmTripStage() {
+    const pendingKey =
+      tripState === "startConfirm" ? K.pendingOnLog : K.pendingOffLog;
+    const log = await db.getItem(pendingKey);
+    if (!log) return toast.error("No pending log found.");
+
+    const entry = {
+      ...log,
+      station: confirmStation || "Unknown",
+      boarded_line: tripState === "startConfirm" ? confirmLine : null,
+      exited_line: tripState === "endConfirm" ? confirmLine : null,
+      car: car || null,
     };
 
     const updated = [...outbox, entry];
-    setOutbox(updated);
     await db.setItem(K.outbox, updated);
+    setOutbox(updated);
 
-    if (action === "on") {
-      const tripData = {
+    if (tripState === "startConfirm") {
+      await db.setItem(K.activeTrip, {
         id: entry.timestamp,
         station: entry.station,
         startTime: entry.timestamp,
-        journey_id: journeyId,
-      };
-      setActiveTrip(tripData);
-      setActiveJourneyId(journeyId);
-      await db.setItem(K.activeTrip, tripData);
+        journey_id: entry.journey_id,
+      });
+      setActiveTrip(entry);
+      setTripState("active");
       toast.success("🚇 Trip started!");
     } else {
+      await db.removeItem(K.activeTrip);
       setActiveTrip(null);
       setActiveJourneyId(null);
-      await db.removeItem(K.activeTrip);
+      setTripState("complete");
       toast.success("🏁 Trip completed!");
     }
   }
@@ -211,6 +241,15 @@ export default function App() {
   useEffect(() => {
     fetchRecentLogs().then(setServerLogs).catch(() => {});
   }, [outbox]);
+
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (tripState !== "active") return;
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [tripState]);
+
 
   // --- UI ---
   if (!user) {
@@ -243,6 +282,9 @@ export default function App() {
         </button>
       </div>
 
+      {/* Debug trip state */}
+      <div className="text-xs text-slate-500 mb-2">State: {tripState}</div>
+
       {/* Tabs */}
       <div className="flex flex-col sm:flex-row justify-center mb-4 gap-3 w-full max-w-md">
         <button
@@ -263,146 +305,103 @@ export default function App() {
         </button>
       </div>
 
-      {/* --- Main Content --- */}
+      {/* Confirmation Card */}
+      {["startConfirm", "endConfirm"].includes(tripState) && (
+        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 mb-6">
+          <h2 className="text-lg font-bold mb-2">
+            {tripState === "startConfirm"
+              ? "🚇 Confirm Start Station"
+              : "🏁 Confirm Exit Station"}
+          </h2>
+          <div className="mb-3">
+            <label className="block text-slate-400 text-sm mb-1">Station</label>
+            <select
+              value={confirmStation}
+              onChange={(e) => setConfirmStation(e.target.value)}
+              className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+            >
+              <option value="">Select station...</option>
+              {uniqueStations.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mb-3">
+            <label className="block text-slate-400 text-sm mb-1">Line</label>
+            <select
+              value={confirmLine}
+              onChange={(e) => setConfirmLine(e.target.value)}
+              className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
+            >
+              <option value="">Select line...</option>
+              {uniqueLines.map((line) => (
+                <option key={line} value={line}>
+                  {line}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={confirmTripStage}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 font-semibold"
+          >
+            Confirm
+          </button>
+        </div>
+      )}
+
+      {/* --- LOG TAB --- */}
       {activeTab === "log" && (
         <>
           <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
-            {!activeTrip ? (
-              <>
-                <h1 className="text-2xl font-bold text-center">🚇 Tap On</h1>
-
-                {/* Tap On Station */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Station
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Type station name..."
-                    value={searchOn}
-                    onChange={(e) => {
-                      setSearchOn(e.target.value);
-                      setSelectedStationOn(e.target.value);
-                    }}
-                    list="stationsListOn"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  />
-                  <datalist id="stationsListOn">
-                    {stations.map((s) => (
-                      <option key={`${s.name}-${s.line}`} value={s.name}>
-                        {s.name} ({s.line})
-                      </option>
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* Boarded Line */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Boarded Line
-                  </label>
-                  <select
-                    value={selectedLineOn}
-                    onChange={(e) => setSelectedLineOn(e.target.value)}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  >
-                    <option value="">Select line...</option>
-                    {[...new Set(stations.map((s) => s.line))].map((line) => (
-                      <option key={line} value={line}>
-                        {line}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Car Number */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Car Number (optional)
-                  </label>
-                  <input
-                    type="text"
-                    maxLength="3"
-                    inputMode="numeric"
-                    pattern="\d*"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                    placeholder="e.g. 123"
-                    value={car}
-                    onChange={(e) =>
-                      setCar(e.target.value.replace(/\D/g, "").slice(0, 3))
-                    }
-                  />
-                </div>
-
-                <div className="flex justify-center mt-4">
-                  <button
-                    onClick={() => handleTap("on")}
-                    className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
-                  >
-                    🚇 Tap On
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h1 className="text-xl font-bold text-yellow-400 text-center">
-                  🟡 Trip in Progress
-                </h1>
-
-                {/* Tap Off Station */}
-                <div className="mb-4 mt-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Exit Station
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Type station name..."
-                    value={searchOff}
-                    onChange={(e) => {
-                      setSearchOff(e.target.value);
-                      setSelectedStationOff(e.target.value);
-                    }}
-                    list="stationsListOff"
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  />
-                  <datalist id="stationsListOff">
-                    {stations.map((s) => (
-                      <option key={`${s.name}-${s.line}`} value={s.name}>
-                        {s.name} ({s.line})
-                      </option>
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* Exited Line */}
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-1">
-                    Exited Line
-                  </label>
-                  <select
-                    value={selectedLineOff}
-                    onChange={(e) => setSelectedLineOff(e.target.value)}
-                    className="w-full bg-slate-800 text-slate-100 rounded-xl p-2"
-                  >
-                    <option value="">Select line...</option>
-                    {[...new Set(stations.map((s) => s.line))].map((line) => (
-                      <option key={line} value={line}>
-                        {line}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex justify-center mt-4">
-                  <button
-                    onClick={() => handleTap("off")}
-                    className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
-                  >
-                    🏁 Tap Off
-                  </button>
-                </div>
-              </>
+            {tripState === "idle" && (
+              <button
+                onClick={handleTapStart}
+                className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+              >
+                🚇 Tap On
+              </button>
             )}
+
+            {tripState === "active" && (
+              <button
+                onClick={handleTapEnd}
+                className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+              >
+                🏁 Tap Off
+              </button>
+            )}
+            {tripState === "active" && activeTrip && (
+  <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 mt-4 text-center animate-pulse">
+    <h2 className="text-lg font-semibold mb-2 text-yellow-300">
+      🟢 Trip in Progress
+    </h2>
+
+    <p className="text-sm text-slate-400 mb-1">
+      From <span className="font-medium text-slate-200">{activeTrip.station}</span>
+    </p>
+
+    <p className="text-sm text-slate-400 mb-1">
+      Line: <span className="font-medium text-slate-200">{activeTrip.boarded_line || "—"}</span>
+    </p>
+
+    <p className="text-sm text-slate-400 mb-2">
+      Duration: <span className="font-mono text-slate-200">{Math.floor(elapsed / 60)}m {elapsed % 60}s</span>
+    </p>
+
+    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+      <div
+        className="bg-yellow-400 h-full transition-all duration-1000 ease-linear"
+        style={{ width: `${(elapsed % 60) * (100 / 60)}%` }}
+      />
+    </div>
+  </div>
+)}
+
           </div>
 
           {/* Map Section */}
@@ -412,111 +411,111 @@ export default function App() {
         </>
       )}
 
-  {activeTab === "summary" && (
-  <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
-    <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
+      {/* --- SUMMARY TAB --- */}
+      {activeTab === "summary" && (
+        <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 mt-6">
+          <h2 className="text-xl font-bold mb-3">📊 My Trips</h2>
 
-    {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
-      <p className="text-slate-400">No trips yet.</p>
-    ) : (
-      <div className="space-y-4">
-        {(() => {
-          // Group logs by journey_id
-          const journeys = Object.values(
-            serverLogs
-              .filter((r) => r.user_id === user.id)
-              .reduce((acc, log) => {
-                if (!log.journey_id) return acc;
-                if (!acc[log.journey_id]) acc[log.journey_id] = [];
-                acc[log.journey_id].push(log);
-                return acc;
-              }, {})
-          );
+          {serverLogs.filter((r) => r.user_id === user.id).length === 0 ? (
+            <p className="text-slate-400">No trips yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {(() => {
+                const journeys = Object.values(
+                  serverLogs
+                    .filter((r) => r.user_id === user.id)
+                    .reduce((acc, log) => {
+                      if (!log.journey_id) return acc;
+                      if (!acc[log.journey_id]) acc[log.journey_id] = [];
+                      acc[log.journey_id].push(log);
+                      return acc;
+                    }, {})
+                );
 
-          // Sort journeys by most recent timestamp
-          journeys.sort((a, b) => {
-            const aTime = Math.max(...a.map((x) => new Date(x.timestamp).getTime()));
-            const bTime = Math.max(...b.map((x) => new Date(x.timestamp).getTime()));
-            return bTime - aTime;
-          });
+                journeys.sort((a, b) => {
+                  const aTime = Math.max(
+                    ...a.map((x) => new Date(x.timestamp).getTime())
+                  );
+                  const bTime = Math.max(
+                    ...b.map((x) => new Date(x.timestamp).getTime())
+                  );
+                  return bTime - aTime;
+                });
 
-          return journeys.map((logs, i) => {
-            const on = logs.find((l) => l.action === "on");
-            const off = logs.find((l) => l.action === "off");
+                return journeys.map((logs, i) => {
+                  const on = logs.find((l) => l.action === "on");
+                  const off = logs.find((l) => l.action === "off");
+                  if (!on) return null;
 
-            if (!on) return null;
+                  const startTime = new Date(on.timestamp);
+                  const endTime = off ? new Date(off.timestamp) : null;
+                  const durationMin = endTime
+                    ? Math.max(0, Math.round((endTime - startTime) / 60000))
+                    : null;
 
-            const startTime = new Date(on.timestamp);
-            const endTime = off ? new Date(off.timestamp) : null;
-            const durationMin = endTime
-              ? Math.max(0, Math.round((endTime - startTime) / 60000))
-              : null;
+                  const dateLabel = startTime.toLocaleDateString([], {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
 
-            const dateLabel = startTime.toLocaleDateString([], {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            });
+                  return (
+                    <div
+                      key={on.journey_id || i}
+                      className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-sm"
+                    >
+                      <div className="text-sm text-slate-400 mb-2">
+                        {dateLabel}
+                      </div>
 
-            return (
-              <div
-                key={on.journey_id || i}
-                className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-sm"
-              >
-                {/* Date Header */}
-                <div className="text-sm text-slate-400 mb-2">{dateLabel}</div>
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1">
+                        <div>
+                          <span className="font-semibold text-slate-100">
+                            🚇 {on.station}
+                          </span>
+                          {off && (
+                            <>
+                              <span className="text-slate-500 mx-2">→</span>
+                              <span className="font-semibold text-slate-100">
+                                🏁 {off.station}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1 sm:mt-0">
+                          {startTime.toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          {off &&
+                            `–${endTime.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`}
+                        </div>
+                      </div>
 
-                {/* Trip Flow */}
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1">
-                  <div>
-                    <span className="font-semibold text-slate-100">
-                      🚇 {on.station}
-                    </span>
-                    {off && (
-                      <>
-                        <span className="text-slate-500 mx-2">→</span>
-                        <span className="font-semibold text-slate-100">
-                          🏁 {off.station}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 sm:mt-0">
-                    {startTime.toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                    {off &&
-                      `–${endTime.toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}`}
-                  </div>
-                </div>
+                      <div className="text-xs text-slate-400 space-y-1 mt-2">
+                        {on.boarded_line && <p>Line: {on.boarded_line}</p>}
+                        {off?.exited_line && <p>Exited Line: {off.exited_line}</p>}
+                        {durationMin !== null && (
+                          <p>
+                            ⏱️ <strong>Duration:</strong> {durationMin} min
+                          </p>
+                        )}
+                        <p>Journey ID: {on.journey_id}</p>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+        </div>
+      )}
 
-                {/* Meta Info */}
-                <div className="text-xs text-slate-400 space-y-1 mt-2">
-                  {on.boarded_line && <p>Line: {on.boarded_line}</p>}
-                  {off?.exited_line && <p>Exited Line: {off.exited_line}</p>}
-                  {durationMin !== null && (
-                    <p>
-                      ⏱️ <strong>Duration:</strong> {durationMin} min
-                    </p>
-                  )}
-                  <p>Journey ID: {on.journey_id}</p>
-                </div>
-              </div>
-            );
-          });
-        })()}
-      </div>
-    )}
-  </div>
-)}
-
-
-      {/* --- Release Notes Section --- */}
+      {/* --- RELEASE NOTES --- */}
       <div className="max-w-md w-full mt-10 bg-slate-800/60 p-4 rounded-2xl border border-slate-700 text-slate-200">
         <h2 className="text-xl font-bold mb-4">📝 Release Notes</h2>
         <div className="prose prose-invert text-sm max-w-none">
