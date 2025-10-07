@@ -361,28 +361,30 @@ export default function App() {
         </div>
       )}
 
-   {/* --- LOG TAB --- */}
+      {/* --- LOG TAB --- */}
 {activeTab === "log" && (
   <>
     <div className="max-w-md w-full bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-3">
 
       {/* Idle: Show nearest station info and Tap On */}
       {tripState === "idle" && (
-        <div className="space-y-3">
-          <div className="text-center text-slate-400 text-sm bg-slate-800 border border-slate-700 rounded-xl p-3">
+        <div className="space-y-3 text-center">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-3 text-slate-300">
             {nearest?.name ? (
               <>
-                <span className="text-slate-300 font-semibold">📍 Nearest Station:</span>{" "}
-                <span className="text-white font-medium">{nearest.name}</span>
+                <span className="font-semibold text-white">📍 Nearest Station:</span>{" "}
+                <span className="text-green-400 font-medium">{nearest.name}</span>
               </>
             ) : (
-              <span>Detecting nearest station...</span>
+              <span className="text-slate-400 animate-pulse">
+                Detecting nearest station...
+              </span>
             )}
           </div>
 
           <button
             onClick={handleTapStart}
-            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full shadow-md"
           >
             🚇 Tap On
           </button>
@@ -394,16 +396,24 @@ export default function App() {
         <>
           <button
             onClick={handleTapEnd}
-            className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+            className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-semibold w-full shadow-md"
           >
             🏁 Tap Off
           </button>
 
           {/* Progress Card */}
           {activeTrip && (
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 mt-4 text-center animate-pulse">
-              <h2 className="text-lg font-semibold mb-2 text-yellow-300">
-                🟢 Trip in Progress
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 mt-4 text-center shadow-lg relative overflow-hidden">
+              {/* Animated pulsing train */}
+              <div className="relative flex justify-center mb-4">
+                <div className="absolute w-16 h-16 rounded-full bg-green-500/20 animate-ping"></div>
+                <div className="relative w-16 h-16 flex items-center justify-center rounded-full bg-green-500 text-white text-3xl shadow-md">
+                  🚇
+                </div>
+              </div>
+
+              <h2 className="text-lg font-semibold text-green-400 mb-2 tracking-wide">
+                Trip in Progress
               </h2>
 
               <p className="text-sm text-slate-400 mb-1">
@@ -420,19 +430,10 @@ export default function App() {
                 </span>
               </p>
 
-              <p className="text-sm text-slate-400 mb-2">
-                Duration:{" "}
-                <span className="font-mono text-slate-200">
-                  {Math.floor(elapsed / 60)}m {elapsed % 60}s
-                </span>
-              </p>
+            
 
-              {/* Animated progress bar */}
-              <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                <div
-                  className="bg-yellow-400 h-full transition-all duration-1000 ease-linear"
-                  style={{ width: `${(elapsed % 60) * (100 / 60)}%` }}
-                />
+              <div className="mt-4 border-t border-slate-700 pt-3 text-xs text-slate-500 italic">
+                Still tracking your journey... 🚏
               </div>
             </div>
           )}
@@ -446,6 +447,7 @@ export default function App() {
     </div>
   </>
 )}
+
 
 
 
