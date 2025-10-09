@@ -18,7 +18,9 @@ export default function App() {
       setUser(session?.user ?? null);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
@@ -58,10 +60,21 @@ export default function App() {
   const [uniqueLines, setUniqueLines] = useState([]);
   const [activeJourneyId, setActiveJourneyId] = useState(null);
   const [activeTrip, setActiveTrip] = useState(null);
+  const [tripStartTime, setTripStartTime] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
 
   const [tripState, setTripState] = useState("idle"); // idle → startConfirm → active → endConfirm → complete
   const [confirmStation, setConfirmStation] = useState("");
   const [confirmLine, setConfirmLine] = useState("");
+
+  // --- Persist tripState & tripStartTime ---
+  useEffect(() => {
+    if (tripState) db.setItem(K.tripState, tripState);
+  }, [tripState]);
+
+  useEffect(() => {
+    if (tripStartTime) db.setItem(K.tripStartTime, tripStartTime);
+  }, [tripStartTime]);
 
   const pos = useGeolocation();
   const nearest = useNearestStation(pos);
@@ -69,6 +82,7 @@ export default function App() {
   // --- Load Stations ---
   useEffect(() => {
     async function loadStations() {
+      console.log("📡 Fetching stations CSV...");
       try {
         const res = await fetch(
           "https://gist.githubusercontent.com/martgnz/1e5d9eb712075d8b8c6f7772a95a59f1/raw/data.csv",
@@ -87,6 +101,7 @@ export default function App() {
         setStations(parsed);
         setUniqueStations([...new Set(parsed.map((s) => s.name))]);
         setUniqueLines([...new Set(parsed.map((s) => s.line))]);
+        console.log("✅ Loaded stations:", parsed.length);
       } catch (err) {
         console.error("❌ Failed to load stations:", err);
       }
@@ -107,6 +122,35 @@ export default function App() {
     init();
   }, []);
 
+  // --- Restore Trip State + Active Trip ---
+  useEffect(() => {
+    async function restoreTrip() {
+      const savedTripState = await db.getItem(K.tripState);
+      const savedTrip = await db.getItem(K.activeTrip);
+      const savedJourneyId = await db.getItem(K.activeJourneyId);
+      const savedTripStartTime = await db.getItem(K.tripStartTime);
+
+      if (savedTrip && savedTripState === "active") {
+        setActiveTrip(savedTrip);
+        setActiveJourneyId(savedTrip.journey_id || savedJourneyId);
+        setTripStartTime(savedTripStartTime ? Number(savedTripStartTime) : null);
+        setTripState("active");
+        toast("🔁 Resumed active trip");
+        return;
+      }
+
+      if (savedTripState && ["startConfirm", "endConfirm"].includes(savedTripState)) {
+        setTripState(savedTripState);
+        toast("⚠️ You have a pending confirmation");
+        return;
+      }
+
+      setTripState("idle");
+    }
+
+    restoreTrip();
+  }, []);
+
   // --- Sync ---
   useEffect(() => {
     const set = () => setOnline(navigator.onLine);
@@ -119,63 +163,42 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-  if (online) syncNow();
-}, [online]);
+    if (online) syncNow();
+  }, [online]);
 
-// 🚀 Also run sync immediately on app startup
-useEffect(() => {
-  syncNow();
-}, []);
+  useEffect(() => {
+    syncNow();
+  }, []);
 
   async function syncNow() {
-  const pending = (await db.getItem(K.outbox)) || [];
-  if (pending.length === 0) {
-    toast("✅ All trips synced — nothing pending.");
-    return;
-  }
-
-  toast("🔄 Syncing pending trips...");
-  try {
-    const res = await postLogs(pending);
-    if (res.ok) {
-      await db.setItem(K.outbox, []);
-      setOutbox([]);
-      toast.success("✅ Synced logs!");
-    } else {
-      toast.error("❌ Server rejected logs");
+    const pending = (await db.getItem(K.outbox)) || [];
+    if (pending.length === 0) {
+      toast("✅ All trips synced — nothing pending.");
+      return;
     }
-  } catch {
-    toast.error("⚠️ Sync failed");
-  }
-}
-async function syncNow() {
-  const pending = (await db.getItem(K.outbox)) || [];
-  if (pending.length === 0) {
-    toast("✅ All trips synced — nothing pending.");
-    return;
-  }
 
-  toast("🔄 Syncing pending trips...");
-  try {
-    const res = await postLogs(pending);
-    if (res.ok) {
-      await db.setItem(K.outbox, []);
-      setOutbox([]);
-      toast.success("✅ Synced logs!");
-    } else {
-      toast.error("❌ Server rejected logs");
+    toast("🔄 Syncing pending trips...");
+    try {
+      const res = await postLogs(pending);
+      if (res.ok) {
+        await db.setItem(K.outbox, []);
+        setOutbox([]);
+        toast.success("✅ Synced logs!");
+      } else {
+        toast.error("❌ Server rejected logs");
+      }
+    } catch {
+      toast.error("⚠️ Sync failed");
     }
-  } catch {
-    toast.error("⚠️ Sync failed");
   }
-}
 
-
-  // --- Tap Start / End ---
+  // --- Tap Start ---
   async function handleTapStart() {
     if (!user) return toast.error("Please sign in first.");
 
     const journeyId = activeJourneyId || uid();
+    console.log("🚆 Starting new trip with journeyId:", journeyId);
+
     const entry = {
       timestamp: new Date().toISOString(),
       deviceId,
@@ -189,13 +212,25 @@ async function syncNow() {
 
     await db.setItem(K.pendingOnLog, entry);
     setActiveJourneyId(journeyId);
+    await db.setItem(K.activeJourneyId, journeyId);
+
+    const now = Date.now();
+    setTripStartTime(now);
+    await db.setItem(K.tripStartTime, now);
+
     setTripState("startConfirm");
     setConfirmStation(nearest?.name || "");
   }
 
+  // --- Tap End ---
   async function handleTapEnd() {
     if (!user) return toast.error("Please sign in first.");
-    if (!activeJourneyId) return toast.error("No active trip found.");
+
+    // 🩹 Ensure journey ID persists
+    let journeyId = activeJourneyId || (await db.getItem(K.activeJourneyId));
+    console.log("🏁 handleTapEnd - activeJourneyId:", journeyId);
+
+    if (!journeyId) return toast.error("No active trip found.");
 
     const entry = {
       timestamp: new Date().toISOString(),
@@ -205,7 +240,7 @@ async function syncNow() {
       action: "off",
       lat: pos?.lat,
       lon: pos?.lon,
-      journey_id: activeJourneyId,
+      journey_id: journeyId,
     };
 
     await db.setItem(K.pendingOffLog, entry);
@@ -233,25 +268,39 @@ async function syncNow() {
     if (tripState === "startConfirm") {
       await db.setItem(K.activeTrip, entry);
       setActiveTrip(entry);
+
+      // 🆕 Ensure journeyId is persisted
+      const savedJourneyId = entry.journey_id;
+      setActiveJourneyId(savedJourneyId);
+      await db.setItem(K.activeJourneyId, savedJourneyId);
+      console.log("🎯 Journey ID persisted:", savedJourneyId);
+
       setTripState("active");
       toast.success("🚇 Trip started!");
     } else {
+      // Clean up
+      setTripStartTime(null);
+      await db.removeItem(K.tripStartTime);
+      setElapsed(0);
+
       await db.removeItem(K.activeTrip);
+      await db.removeItem(K.activeJourneyId);
       setActiveTrip(null);
       setTripState("complete");
+
       toast.success("🏁 Trip completed!");
       setTimeout(() => setTripState("idle"), 1000);
     }
   }
 
   // --- Timer ---
-  const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (tripState !== "active") return;
-    const start = Date.now();
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    if (tripState !== "active" || !tripStartTime) return;
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - tripStartTime) / 1000));
+    }, 1000);
     return () => clearInterval(id);
-  }, [tripState]);
+  }, [tripState, tripStartTime]);
 
   // --- Fetch Logs ---
   useEffect(() => {
@@ -288,7 +337,6 @@ async function syncNow() {
       transition={{ duration: 0.5 }}
       className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center py-6 px-4"
     >
-      {/* Header */}
       <div className="flex justify-between w-full max-w-md mb-4">
         <span className="text-slate-300">👋 {user.email}</span>
         <button
@@ -330,7 +378,6 @@ async function syncNow() {
             className="w-full flex flex-col items-center"
           >
             <AnimatePresence mode="wait">
-              {/* Tap On */}
               {tripState === "idle" && (
                 <motion.div
                   key="idle"
@@ -342,7 +389,9 @@ async function syncNow() {
                 >
                   <p className="text-slate-400 text-sm">
                     📍 Nearest Station:{" "}
-                    <span className="text-white font-medium">{nearest?.name || "Detecting..."}</span>
+                    <span className="text-white font-medium">
+                      {nearest?.name || "Detecting..."}
+                    </span>
                   </p>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
@@ -355,7 +404,6 @@ async function syncNow() {
                 </motion.div>
               )}
 
-              {/* Confirmation */}
               {["startConfirm", "endConfirm"].includes(tripState) && (
                 <motion.div
                   key="confirm"
@@ -414,7 +462,6 @@ async function syncNow() {
                 </motion.div>
               )}
 
-              {/* Trip In Progress */}
               {tripState === "active" && activeTrip && (
                 <motion.div
                   key="active"
@@ -545,4 +592,3 @@ async function syncNow() {
     </motion.div>
   );
 }
-

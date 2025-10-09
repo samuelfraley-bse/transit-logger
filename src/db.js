@@ -9,12 +9,14 @@ export const db = localforage.createInstance({
 export const K = {
   deviceId: "deviceId",
   activeTrip: "activeTrip",
-  activeJourneyId: "activeJourneyId", // 🆕 persists journey linkage
-  tripState: "tripState",             // 🆕 persists UI trip stage
+  activeJourneyId: "activeJourneyId",
+  tripState: "tripState",
+  tripStartTime: "tripStartTime", // 🆕 new key
   outbox: "outbox",
   pendingOnLog: "pendingOnLog",
   pendingOffLog: "pendingOffLog",
 };
+
 
 export function uid() {
   return Math.random().toString(36).substring(2, 10);

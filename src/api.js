@@ -10,15 +10,14 @@ export async function postLogs(logs) {
       console.group("🛰️ Uploading Log Entry");
       console.log("Payload being sent:", log);
 
-      // 1️⃣ Insert the individual log entry
+      // 1️⃣ Insert the individual log entry into `logs` table
       const { data: logData, error: logError } = await supabase
         .from("logs")
         .insert({
           timestamp: new Date(log.timestamp).toISOString(),
           device_id: log.deviceId,
           user_id: log.user_id,
-          email: log.email,
-          car: log.car,
+          email: log.email || null, // harmless even if column exists
           action: log.action,
           station: log.station,
           lat: log.lat,
@@ -30,10 +29,9 @@ export async function postLogs(logs) {
         .select();
 
       if (logError) throw logError;
-
       console.log("✅ Log inserted:", logData);
 
-      // 2️⃣ Update or insert into journeys
+      // 2️⃣ Maintain `journeys` table to reflect trip state
       if (log.action === "on") {
         // Create a new journey entry
         const { error: journeyInsertError } = await supabase
@@ -42,11 +40,10 @@ export async function postLogs(logs) {
             {
               id: log.journey_id,
               user_id: log.user_id,
-              email: log.email,
               start_station: log.station,
               start_time: log.timestamp,
-              boarded_line: log.boarded_line || null,
-              car: log.car || null,
+              lines_used: [log.boarded_line || "pending"], // <-- matches your table
+              complete: false,
             },
           ]);
 
@@ -56,13 +53,13 @@ export async function postLogs(logs) {
       }
 
       if (log.action === "off" && log.journey_id) {
-        // Update existing journey to complete it
+        // Update the journey to mark it complete
         const { error: journeyUpdateError } = await supabase
           .from("journeys")
           .update({
             end_station: log.station,
             end_time: log.timestamp,
-            exited_line: log.exited_line || null,
+            complete: true,
           })
           .eq("id", log.journey_id);
 
@@ -92,7 +89,6 @@ export async function fetchRecentLogs() {
         `
         id,
         timestamp,
-        car,
         action,
         station,
         lat,
