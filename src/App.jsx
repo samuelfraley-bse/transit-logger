@@ -67,6 +67,7 @@ export default function App() {
   const [confirmStation, setConfirmStation] = useState("");
   const [confirmLine, setConfirmLine] = useState("");
   const [showingAll, setShowingAll] = useState(false);
+  const [confirmCar, setConfirmCar] = useState("");
 
   //Full trip log
   async function fetchAllTripsFromSupabase(userId) {
@@ -293,11 +294,13 @@ function handleTripDelete(journeyId) {
     if (!log) return toast.error("No pending log found.");
 
     const entry = {
-      ...log,
-      station: confirmStation || "Unknown",
-      boarded_line: tripState === "startConfirm" ? confirmLine : null,
-      exited_line: tripState === "endConfirm" ? confirmLine : null,
-    };
+                    ...log,
+                    station: confirmStation || "Unknown",
+                    boarded_line: tripState === "startConfirm" ? confirmLine : null,
+                    exited_line: tripState === "endConfirm" ? confirmLine : null,
+                    car: tripState === "startConfirm" ? confirmCar || null : log.car || null,
+};
+
 
     const updated = [...outbox, entry];
     await db.setItem(K.outbox, updated);
@@ -430,89 +433,122 @@ return (
           className="w-full flex flex-col items-center"
         >
           <AnimatePresence mode="wait">
-            {tripState === "idle" && (
-              <motion.div
-                key="idle"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.4 }}
-                className="max-w-md w-full bg-slate-800/70 p-5 rounded-2xl border border-slate-700 space-y-4 text-center shadow-lg"
-              >
-                <p className="text-slate-400 text-sm">
-                  📍 Nearest Station:{" "}
-                  <span className="text-white font-medium">
-                    {nearest?.name || "Detecting..."}
-                  </span>
-                </p>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleTapStart}
-                  className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
-                >
-                  🚇 Tap On
-                </motion.button>
-              </motion.div>
-            )}
+        {tripState === "idle" && (
+  <motion.div
+    key="idle"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    transition={{ duration: 0.4 }}
+    className="max-w-md w-full bg-slate-800/70 p-5 rounded-2xl border border-slate-700 space-y-4 text-center shadow-lg"
+  >
+    <p className="text-slate-400 text-sm">
+      📍 Nearest Station:{" "}
+      <span className="text-white font-medium">
+        {nearest?.name || "Detecting..."}
+      </span>
+    </p>
+
+    {/* 🚆 Car Number Field */}
+    <div className="text-left">
+      <label className="block text-slate-400 text-sm mb-1">
+        Car Number (optional)
+      </label>
+      <input
+        type="text"
+        value={confirmCar}
+        onChange={(e) => setConfirmCar(e.target.value)}
+        placeholder="e.g. Car 203 or 04B"
+        className="w-full bg-slate-700 text-slate-100 rounded-xl p-2"
+      />
+    </div>
+
+    <motion.button
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      onClick={handleTapStart}
+      className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-semibold w-full"
+    >
+      🚇 Tap On
+    </motion.button>
+  </motion.div>
+)}
+
 
             {["startConfirm", "endConfirm"].includes(tripState) && (
-              <motion.div
-                key="confirm"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.4 }}
-                className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-5 mb-6 shadow-md"
-              >
-                <h2 className="text-lg font-bold mb-4">
-                  {tripState === "startConfirm"
-                    ? "🚇 Confirm Start Station"
-                    : "🏁 Confirm Exit Station"}
-                </h2>
+  <motion.div
+    key="confirm"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    transition={{ duration: 0.4 }}
+    className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-5 mb-6 shadow-md"
+  >
+    <h2 className="text-lg font-bold mb-4">
+      {tripState === "startConfirm"
+        ? "🚇 Confirm Start Station"
+        : "🏁 Confirm Exit Station"}
+    </h2>
 
-                <div className="mb-3">
-                  <label className="block text-slate-400 text-sm mb-1">Station</label>
-                  <select
-                    value={confirmStation}
-                    onChange={(e) => setConfirmStation(e.target.value)}
-                    className="w-full bg-slate-700 text-slate-100 rounded-xl p-2"
-                  >
-                    <option value="">Select station...</option>
-                    {uniqueStations.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+    <div className="mb-3">
+      <label className="block text-slate-400 text-sm mb-1">Station</label>
+      <select
+        value={confirmStation}
+        onChange={(e) => setConfirmStation(e.target.value)}
+        className="w-full bg-slate-700 text-slate-100 rounded-xl p-2"
+      >
+        <option value="">Select station...</option>
+        {uniqueStations.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </div>
 
-                <div className="mb-3">
-                  <label className="block text-slate-400 text-sm mb-1">Line</label>
-                  <select
-                    value={confirmLine}
-                    onChange={(e) => setConfirmLine(e.target.value)}
-                    className="w-full bg-slate-700 text-slate-100 rounded-xl p-2"
-                  >
-                    <option value="">Select line...</option>
-                    {uniqueLines.map((line) => (
-                      <option key={line} value={line}>
-                        {line}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+    <div className="mb-3">
+      <label className="block text-slate-400 text-sm mb-1">Line</label>
+      <select
+        value={confirmLine}
+        onChange={(e) => setConfirmLine(e.target.value)}
+        className="w-full bg-slate-700 text-slate-100 rounded-xl p-2"
+      >
+        <option value="">Select line...</option>
+        {uniqueLines.map((line) => (
+          <option key={line} value={line}>
+            {line}
+          </option>
+        ))}
+      </select>
+    </div>
 
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={confirmTripStage}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 font-semibold"
-                >
-                  Confirm
-                </motion.button>
-              </motion.div>
-            )}
+    {/* 🚆 NEW Car Number field — only shown on "Tap On" */}
+    {tripState === "startConfirm" && (
+      <div className="mb-3">
+        <label className="block text-slate-400 text-sm mb-1">
+          Car Number (optional)
+        </label>
+        <input
+          type="text"
+          value={confirmCar}
+          onChange={(e) => setConfirmCar(e.target.value)}
+          placeholder="e.g. Car 203 or 04B"
+          className="w-full bg-slate-700 text-slate-100 rounded-xl p-2"
+        />
+      </div>
+    )}
+
+    <motion.button
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+      onClick={confirmTripStage}
+      className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 font-semibold"
+    >
+      Confirm
+    </motion.button>
+  </motion.div>
+)}
+
 
             {tripState === "active" && activeTrip && (
               <motion.div
@@ -721,24 +757,30 @@ return (
                   </div>
                 </div>
 
-                <div className="text-xs text-slate-400 flex flex-col gap-1">
-                  {t.durationMin !== null && <span>⏱️ {t.durationMin} min</span>}
-                  {t.startTime && (
-                    <span>
-                      📅{" "}
-                      {t.startTime.toLocaleDateString(undefined, {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                      })}{" "}
-                      •{" "}
-                      {t.startTime.toLocaleTimeString(undefined, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  )}
-                </div>
+          <div className="text-xs text-slate-400 flex flex-col gap-1">
+             {t.durationMin !== null && <span>⏱️ {t.durationMin} min</span>}
+               {t.on?.car && (
+                 <span>
+                  🚆 Car: <span className="font-medium text-slate-300">{t.on.car}</span>
+                 </span>
+                          )}
+               {t.startTime && (
+                  <span>
+                            📅{" "}
+          {t.startTime.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })}{" "}
+      •{" "}
+      {t.startTime.toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}
+    </span>
+  )}
+</div>
+
               </motion.div>
             ))}
           </div>
