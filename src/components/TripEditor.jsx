@@ -1,189 +1,201 @@
-// src/components/TripEditor.jsx
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
-import { db, K, uid } from "../db.js";
 
 export default function TripEditor({
-  mode = "add",
-  initialData = null,
-  uniqueStations = [],
-  uniqueLines = [],
+  mode = "edit",
+  initialData,
+  uniqueStations,
+  uniqueLines,
   onSave,
   onDelete,
   onCancel,
-  user,
-  deviceId,
 }) {
-  const [form, setForm] = useState(
-    initialData || {
-      station_from: "",
-      station_to: "",
-      line: "",
-      start_time: "",
-      end_time: "",
-      manual: true,
-    }
-  );
+  const [step, setStep] = useState("on"); // "on" first, then "off"
+  const [onData, setOnData] = useState(initialData?.on || {});
+  const [offData, setOffData] = useState(initialData?.off || {});
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
+  function handleOnChange(field, value) {
+    setOnData((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function handleOffChange(field, value) {
+    setOffData((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleNext() {
+    if (!onData.station || !onData.boarded_line || !onData.timestamp) {
+      return toast.error("Please fill in all required Tap On fields");
+    }
+    setStep("off");
+  }
 
   async function handleSave() {
-    if (!form.station_from || !form.line || !form.start_time) {
-      return toast.error("Please fill in required fields.");
+    if (!offData.station || !offData.exited_line || !offData.timestamp) {
+      return toast.error("Please fill in all required Tap Off fields");
     }
 
-    const journey_id = initialData?.journey_id || uid();
-    const trip = {
-      ...form,
-      user_id: user.id,
-      email: user.email,
-      deviceId,
-      journey_id,
-      timestamp: new Date().toISOString(),
-      action: "manual",
-    };
-
-    // Save to IndexedDB
-    const outbox = (await db.getItem(K.outbox)) || [];
-    const existingIndex = outbox.findIndex((t) => t.journey_id === journey_id);
-    if (existingIndex >= 0) {
-      outbox[existingIndex] = trip;
-    } else {
-      outbox.push(trip);
-    }
-    await db.setItem(K.outbox, outbox);
-
-    toast.success("✅ Trip saved locally");
-    onSave(trip);
+    await onSave({ on: onData, off: offData });
   }
 
-  async function handleDelete() {
-    if (!initialData?.journey_id) return;
-    const outbox = (await db.getItem(K.outbox)) || [];
-    const updated = outbox.filter((t) => t.journey_id !== initialData.journey_id);
-    await db.setItem(K.outbox, updated);
-    toast("🗑️ Trip deleted locally");
-    onDelete(initialData.journey_id);
-  }
+  const commonInputClass =
+    "w-full bg-slate-700 text-slate-100 rounded-xl p-2 mb-3";
+
+  const modalTitle = step === "on" ? "✏️ Edit Tap On" : "🏁 Edit Tap Off";
 
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
+        key={step}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
       >
         <motion.div
-          className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-lg text-slate-100"
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
+          layout
+          className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-xl"
         >
-          <h2 className="text-xl font-bold mb-4">
-            {mode === "add" ? "➕ Add New Trip" : "✏️ Edit Trip"}
-          </h2>
+          <h2 className="text-xl font-bold mb-4">{modalTitle}</h2>
 
-          {/* Form fields */}
-          <div className="space-y-3">
-            <div>
-              <label className="block text-slate-400 text-sm mb-1">Start Station *</label>
+          {/* Step: TAP ON */}
+          {step === "on" && (
+            <>
+              <label className="block text-slate-400 text-sm mb-1">
+                Start Station *
+              </label>
               <select
-                name="station_from"
-                value={form.station_from}
-                onChange={handleChange}
-                className="w-full bg-slate-700 rounded-xl p-2"
+                value={onData.station || ""}
+                onChange={(e) => handleOnChange("station", e.target.value)}
+                className={commonInputClass}
               >
                 <option value="">Select station...</option>
-                {uniqueStations.map((s) => (
-                  <option key={s}>{s}</option>
+                {uniqueStations.map((name) => (
+                  <option key={name}>{name}</option>
                 ))}
               </select>
-            </div>
 
-            <div>
-              <label className="block text-slate-400 text-sm mb-1">End Station</label>
-              <select
-                name="station_to"
-                value={form.station_to}
-                onChange={handleChange}
-                className="w-full bg-slate-700 rounded-xl p-2"
-              >
-                <option value="">Select station...</option>
-                {uniqueStations.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
               <label className="block text-slate-400 text-sm mb-1">Line *</label>
               <select
-                name="line"
-                value={form.line}
-                onChange={handleChange}
-                className="w-full bg-slate-700 rounded-xl p-2"
+                value={onData.boarded_line || ""}
+                onChange={(e) => handleOnChange("boarded_line", e.target.value)}
+                className={commonInputClass}
               >
                 <option value="">Select line...</option>
-                {uniqueLines.map((l) => (
-                  <option key={l}>{l}</option>
+                {uniqueLines.map((line) => (
+                  <option key={line}>{line}</option>
                 ))}
               </select>
-            </div>
 
-            <div>
-              <label className="block text-slate-400 text-sm mb-1">Start Time *</label>
+              <label className="block text-slate-400 text-sm mb-1">
+                Car Number
+              </label>
+              <input
+                type="text"
+                value={onData.car || ""}
+                onChange={(e) => handleOnChange("car", e.target.value)}
+                placeholder="Optional"
+                className={commonInputClass}
+              />
+
+              <label className="block text-slate-400 text-sm mb-1">
+                Start Time *
+              </label>
               <input
                 type="datetime-local"
-                name="start_time"
-                value={form.start_time}
-                onChange={handleChange}
-                className="w-full bg-slate-700 rounded-xl p-2 text-slate-100"
+                value={
+                  onData.timestamp
+                    ? new Date(onData.timestamp).toISOString().slice(0, 16)
+                    : ""
+                }
+                onChange={(e) => handleOnChange("timestamp", e.target.value)}
+                className={commonInputClass}
               />
-            </div>
 
-            <div>
-              <label className="block text-slate-400 text-sm mb-1">End Time</label>
-              <input
-                type="datetime-local"
-                name="end_time"
-                value={form.end_time}
-                onChange={handleChange}
-                className="w-full bg-slate-700 rounded-xl p-2 text-slate-100"
-              />
-            </div>
-          </div>
-
-          {/* Buttons */}
-          <div className="flex justify-between items-center mt-6">
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-xl"
-            >
-              Cancel
-            </button>
-
-            <div className="flex gap-2">
-              {mode === "edit" && (
+              <div className="flex justify-between mt-5">
                 <button
-                  onClick={handleDelete}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-xl"
+                  onClick={onCancel}
+                  className="bg-slate-600 text-white px-4 py-2 rounded-lg"
                 >
-                  Delete
+                  Cancel
                 </button>
-              )}
-              <button
-                onClick={handleSave}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold"
+                <button
+                  onClick={handleNext}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                >
+                  Next →
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Step: TAP OFF */}
+          {step === "off" && (
+            <>
+              <label className="block text-slate-400 text-sm mb-1">
+                End Station *
+              </label>
+              <select
+                value={offData.station || ""}
+                onChange={(e) => handleOffChange("station", e.target.value)}
+                className={commonInputClass}
               >
-                Save
-              </button>
-            </div>
-          </div>
+                <option value="">Select station...</option>
+                {uniqueStations.map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
+              </select>
+
+              <label className="block text-slate-400 text-sm mb-1">Line *</label>
+              <select
+                value={offData.exited_line || ""}
+                onChange={(e) => handleOffChange("exited_line", e.target.value)}
+                className={commonInputClass}
+              >
+                <option value="">Select line...</option>
+                {uniqueLines.map((line) => (
+                  <option key={line}>{line}</option>
+                ))}
+              </select>
+
+              <label className="block text-slate-400 text-sm mb-1">
+                End Time *
+              </label>
+              <input
+                type="datetime-local"
+                value={
+                  offData.timestamp
+                    ? new Date(offData.timestamp).toISOString().slice(0, 16)
+                    : ""
+                }
+                onChange={(e) => handleOffChange("timestamp", e.target.value)}
+                className={commonInputClass}
+              />
+
+              <div className="flex justify-between mt-5">
+                <button
+                  onClick={() => setStep("on")}
+                  className="bg-slate-600 text-white px-4 py-2 rounded-lg"
+                >
+                  ← Back
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onDelete(onData.journey_id)}
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg"
+                  >
+                    Save ✅
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>

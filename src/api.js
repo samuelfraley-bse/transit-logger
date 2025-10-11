@@ -25,6 +25,7 @@ export async function postLogs(logs) {
           boarded_line: log.boarded_line || null,
           exited_line: log.exited_line || null,
           journey_id: log.journey_id || null,
+          car: log.car || null
         })
         .select();
 
