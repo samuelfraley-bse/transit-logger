@@ -12,45 +12,26 @@ export async function postLogs(logs) {
 
       // ✅ If this log has a new_id, it's a new version
       if (log.new_id) {
-        // 1️⃣ First, deprecate any existing logs with same journey_id and action
-        if (log.journey_id && log.action) {
-          const { error: deprecateError } = await supabase
-            .from("logs")
-            .update({
-              deprecated: true,
-              replaced_by: log.new_id,
-            })
-            .eq("journey_id", log.journey_id)
-            .eq("action", log.action)
-            .or("deprecated.is.null,deprecated.eq.false");
-
-          if (deprecateError) {
-            console.error("⚠️ Failed to deprecate old logs:", deprecateError);
-          } else {
-            console.log(`🔄 Deprecated old ${log.action} logs for journey ${log.journey_id}`);
-          }
-        }
-
-        // 2️⃣ Insert the NEW log entry
+        // 1️⃣ INSERT THE NEW LOG FIRST (so it exists for the foreign key)
         const { data: newLogData, error: insertError } = await supabase
           .from("logs")
-         // In postLogs function, when inserting logs, replace this section:
-.insert({
-  id: log.new_id,
-  timestamp: new Date(log.timestamp).toISOString(),
-  device_id: log.device_id,
-  user_id: log.user_id,
-  email: log.email || null,
-  action: log.action,
-  station: log.station,
-  lat: log.lat,
-  lon: log.lon,
-  line: log.line || log.boarded_line || log.exited_line || null, // ✅ Use single line field
-  car: log.car || null,
-  journey_id: log.journey_id || null,
-  deprecated: false,
-  manual: log.manual || false,
-})
+          .insert({
+            id: log.new_id,
+            new_id: log.new_id,
+            timestamp: new Date(log.timestamp).toISOString(),
+            device_id: log.device_id,
+            user_id: log.user_id,
+            email: log.email || null,
+            action: log.action,
+            station: log.station,
+            lat: log.lat,
+            lon: log.lon,
+            line: log.line || log.boarded_line || log.exited_line || null,
+            car: log.car || null,
+            journey_id: log.journey_id || null,
+            deprecated: false,
+            manual: log.manual || false,
+          })
           .select();
 
         if (insertError) {
@@ -58,26 +39,64 @@ export async function postLogs(logs) {
           throw insertError;
         }
         console.log("✅ New log inserted:", newLogData);
+
+        // 2️⃣ NOW DEPRECATE OLD LOGS (after new one exists in DB)
+        if (log.journey_id && log.action) {
+          // Find OLD logs that need deprecating (exclude the new log we just inserted)
+          const { data: matchingLogs, error: fetchError } = await supabase
+            .from("logs")
+            .select("id")
+            .eq("journey_id", log.journey_id)
+            .eq("action", log.action)
+            .neq("id", log.new_id) // Don't match the new log
+            .or("deprecated.is.null,deprecated.eq.false");
+
+          if (fetchError) {
+            console.error("⚠️ Failed to find logs to deprecate:", fetchError);
+          } else if (matchingLogs && matchingLogs.length > 0) {
+            console.log(`📝 Found ${matchingLogs.length} old log(s) to deprecate`);
+            
+            // Deprecate them
+            const idsToDeprecate = matchingLogs.map(l => l.id);
+            const { error: deprecateError } = await supabase
+              .from("logs")
+              .update({
+                deprecated: true,
+                replaced_by: log.new_id, // ✅ This foreign key now exists!
+              })
+              .in("id", idsToDeprecate);
+
+            if (deprecateError) {
+              console.error("⚠️ Failed to deprecate old logs:", deprecateError);
+            } else {
+              console.log(`✅ Deprecated ${idsToDeprecate.length} old ${log.action} log(s) for journey ${log.journey_id}`);
+            }
+          } else {
+            console.log(`ℹ️ No old logs to deprecate for ${log.action} on journey ${log.journey_id}`);
+          }
+        }
       } else {
         // Regular log insert (no editing involved)
         const { data: logData, error: logError } = await supabase
           .from("logs")
-       .insert({
-  timestamp: new Date(log.timestamp).toISOString(),
-  device_id: log.device_id || log.deviceId,
-  user_id: log.user_id,
-  email: log.email || null,
-  action: log.action,
-  station: log.station,
-  lat: log.lat,
-  lon: log.lon,
-  line: log.line || log.boarded_line || log.exited_line || null, // ✅ Use single line field
-  car: log.car || null,
-  journey_id: log.journey_id || null,
-  deprecated: log.deprecated || false,
-  deleted_at: log.deleted_at || null,
-  manual: log.manual || false,
-})
+          .insert({
+            new_id: log.new_id,
+            new_id: log.new_id || undefined,
+            timestamp: new Date(log.timestamp).toISOString(),
+            device_id: log.device_id || log.deviceId,
+            user_id: log.user_id,
+            email: log.email || null,
+            action: log.action,
+            station: log.station,
+            lat: log.lat,
+            lon: log.lon,
+            line: log.line || log.boarded_line || log.exited_line || null,
+            car: log.car || null,
+            journey_id: log.journey_id || null,
+            deprecated: log.deprecated || false,
+            deleted_at: log.deleted_at || null,
+            manual: log.manual || false,
+          })
           .select();
 
         if (logError) throw logError;
@@ -94,7 +113,7 @@ export async function postLogs(logs) {
               user_id: log.user_id,
               start_station: log.station,
               start_time: log.timestamp,
-              lines_used: [log.boarded_line || "pending"],
+              lines_used: [log.line || log.boarded_line || "pending"],
               complete: false,
             },
             { onConflict: "id" }
@@ -151,8 +170,7 @@ export async function fetchRecentLogs(includeDeprecated = false) {
         station,
         lat,
         lon,
-        boarded_line,
-        exited_line,
+        line,
         car,
         journey_id,
         user_id,
