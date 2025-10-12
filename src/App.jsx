@@ -2,17 +2,19 @@ import React, { useEffect, useState } from "react";
 import { db, K, uid } from "./db.js";
 import { useGeolocation } from "./hooks/useGeolocation.js";
 import { useNearestStation } from "./hooks/useStations.js";
-import { postLogs, fetchRecentLogs } from "./api.js";
+import { postLogs, fetchRecentLogs, fetchAllTrips } from "./api.js";
 import { supabase } from "./supabaseClient.js";
 import MapView from "./components/MapView.jsx";
 import toast, { Toaster } from "react-hot-toast";
 import TripEditor from "./components/TripEditor.jsx";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSync } from "./hooks/useSync.js";
 
 export default function App() {
   // --- Auth ---
   const [user, setUser] = useState(null);
+  const { syncNow } = useSync();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -71,40 +73,42 @@ export default function App() {
 
   //Full trip log
   async function fetchAllTripsFromSupabase(userId) {
-  const { data, error } = await supabase
-    .from("logs") // change table name if yours is different
-    .select("*")
-    .eq("user_id", userId)
-    .order("timestamp", { ascending: false });
-
-  if (error) {
-    console.error("❌ Error fetching full history:", error);
-    toast.error("Failed to load full trip history");
-    return [];
+    return await fetchAllTrips(userId, false);
   }
 
-  return data || [];
-}
-
-
   // --- Trip Editor ---
-const [editingTrip, setEditingTrip] = useState(null);
-const [editMode, setEditMode] = useState("add");
+  const [editingTrip, setEditingTrip] = useState(null);
+  const [editMode, setEditMode] = useState("add");
 
-function handleTripSave(updatedTrip) {
-  // Merge new or edited trip into local state
-  setServerLogs((prev) => {
-    const filtered = prev.filter((l) => l.journey_id !== updatedTrip.journey_id);
-    return [...filtered, updatedTrip];
-  });
-  setEditingTrip(null);
-}
+  function handleTripSave(updatedTrip) {
+    setServerLogs((prev) => {
+      const filtered = prev.filter((l) => l.journey_id !== updatedTrip.journey_id);
+      const newLogs = [updatedTrip.on];
+      if (updatedTrip.off) newLogs.push(updatedTrip.off);
+      return [...filtered, ...newLogs];
+    });
+    setEditingTrip(null);
+    toast.success("Trip saved! Will sync when online.");
+  }
 
-function handleTripDelete(journeyId) {
-  setServerLogs((prev) => prev.filter((l) => l.journey_id !== journeyId));
-  setEditingTrip(null);
-}
-
+  async function handleTripDelete(journeyId) {
+    const outbox = (await db.getItem(K.outbox)) || [];
+    const updatedOutbox = outbox.map((log) => {
+      if (log.journey_id === journeyId) {
+        return {
+          ...log,
+          deprecated: true,
+          deleted_at: new Date().toISOString(),
+        };
+      }
+      return log;
+    });
+    await db.setItem(K.outbox, updatedOutbox);
+    
+    setServerLogs((prev) => prev.filter((l) => l.journey_id !== journeyId));
+    setEditingTrip(null);
+    toast("Trip deleted. Will sync when online.");
+  }
 
   // --- Persist tripState & tripStartTime ---
   useEffect(() => {
@@ -209,27 +213,6 @@ function handleTripDelete(journeyId) {
     syncNow();
   }, []);
 
-  async function syncNow() {
-    const pending = (await db.getItem(K.outbox)) || [];
-    if (pending.length === 0) {
-      toast("✅ All trips synced — nothing pending.");
-      return;
-    }
-
-    toast("🔄 Syncing pending trips...");
-    try {
-      const res = await postLogs(pending);
-      if (res.ok) {
-        await db.setItem(K.outbox, []);
-        setOutbox([]);
-        toast.success("✅ Synced logs!");
-      } else {
-        toast.error("❌ Server rejected logs");
-      }
-    } catch {
-      toast.error("⚠️ Sync failed");
-    }
-  }
 
   // --- Tap Start ---
   async function handleTapStart() {
@@ -330,6 +313,7 @@ function handleTripDelete(journeyId) {
       setTripState("complete");
 
       toast.success("🏁 Trip completed!");
+      syncNow();
       setTimeout(() => setTripState("idle"), 1000);
     }
   }
@@ -742,7 +726,11 @@ return (
                     <button
                       onClick={() => {
                         setEditMode("edit");
-                        setEditingTrip(t.on);
+                        setEditingTrip({
+                          on: t.on,
+                          off: t.off,
+                          journey_id: t.on?.journey_id,
+                        });
                       }}
                       className="text-blue-400 hover:text-blue-300 text-xs"
                     >
@@ -797,7 +785,8 @@ return (
           {editingTrip && (
             <TripEditor
               mode={editMode}
-              initialData={editingTrip}
+              initialData={editingTrip.on || editingTrip}
+              offData={editingTrip.off}
               uniqueStations={uniqueStations}
               uniqueLines={uniqueLines}
               onSave={handleTripSave}

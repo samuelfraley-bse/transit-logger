@@ -11,13 +11,21 @@ export const K = {
   activeTrip: "activeTrip",
   activeJourneyId: "activeJourneyId",
   tripState: "tripState",
-  tripStartTime: "tripStartTime", // 🆕 new key
+  tripStartTime: "tripStartTime",
   outbox: "outbox",
   pendingOnLog: "pendingOnLog",
   pendingOffLog: "pendingOffLog",
 };
 
-
+// ✅ Generate proper UUIDs
 export function uid() {
-  return Math.random().toString(36).substring(2, 10);
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older browsers
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 }
