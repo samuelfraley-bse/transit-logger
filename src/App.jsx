@@ -10,6 +10,7 @@ import TripEditor from "./components/TripEditor.jsx";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSync } from "./hooks/useSync.js";
+import DashboardTab from "./components/DashboardTab.jsx";
 
 export default function App() {
   // --- Auth ---
@@ -403,9 +404,35 @@ return (
       >
         📊 My Trips
       </button>
+
+      <button
+        onClick={() => setActiveTab("dashboard")}
+        className={`px-4 py-2 rounded-xl font-semibold w-full sm:w-auto transition ${
+    activeTab === "dashboard"
+      ? "bg-blue-600 shadow-md"
+      : "bg-slate-700 hover:bg-slate-600"
+  }`}
+>
+  📈 Dashboard
+</button>
+
     </div>
 
     <AnimatePresence mode="wait">
+      {activeTab === "dashboard" && (
+  <motion.div
+    key="dashboard"
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -10 }}
+    transition={{ duration: 0.5 }}
+    className="w-full max-w-3xl"
+  >
+    <DashboardTab />
+  </motion.div>
+)}
+
+
       {/* --- LOG TAB --- */}
       {activeTab === "log" && (
         <motion.div
@@ -777,6 +804,8 @@ return (
     </div>
   );
 })()}
+
+
 
             </motion.div>
           )}
