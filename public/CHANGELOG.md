@@ -7,7 +7,7 @@ Dates follow the **YYYY-MM-DD** format.
 
 ## Version 2.1.0 – 2025-10-12
 **Adding trip editing** user can edit old trip metadata, which is then updated in supabase database. Old data is preserved as deprecated
-**Created sync hook** instead of calling function, used hook to create cleaner syncing and prevent duplciate logging
+**Created sync hook** instead of calling function, used hook to create cleaner syncing and prevent duplciate logging.
 
 ## Version 2.0.1 – 2025-10-09
 **Added Trip Editing** Allow users to edit and add or delete in the UI
