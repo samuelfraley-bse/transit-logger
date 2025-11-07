@@ -162,19 +162,27 @@ export default function DashboardTab() {
         </div>
       </section>
 
-      {/* RADIAL: taps by hour */}
-      <section className="grid gap-3">
-        <h2 className="text-lg font-semibold">Taps by time of day</h2>
-        <div className="h-[360px] rounded-2xl border p-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadialBarChart innerRadius="25%" outerRadius="85%" data={byHour} startAngle={90} endAngle={-270}>
-              <PolarAngleAxis type="number" domain={[0, 23]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}:00`} />
-              <ReTooltip formatter={(v, _n, p) => [v, `${p?.payload?.hour}:00`]} />
-              <RadialBar dataKey="count" fill="#60a5fa" stroke="none" />
-            </RadialBarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
+{/* BAR: taps by hour */}
+<section className="grid gap-3">
+  <h2 className="text-lg font-semibold">Taps by time of day</h2>
+  <div className="h-[360px] rounded-2xl border p-4">
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={byHour}>
+        <XAxis 
+          dataKey="hour" 
+          tickFormatter={(h) => `${h}:00`}
+          interval={1}
+        />
+        <YAxis allowDecimals={false} />
+        <ReTooltip 
+          labelFormatter={(h) => `${h}:00`}
+          formatter={(value) => [value, 'Taps']}
+        />
+        <Bar dataKey="count" fill="#60a5fa" />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>
+</section>
 
       {/* BAR: taps by weekday */}
       <section className="grid gap-3">
