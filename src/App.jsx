@@ -11,6 +11,7 @@ import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSync } from "./hooks/useSync.js";
 import DashboardTab from "./components/DashboardTab.jsx";
+import GalleryTab from "./components/GalleryTab.jsx";
 
 export default function App() {
   // --- Auth ---
@@ -414,6 +415,17 @@ return (
   }`}
 >
   📈 Dashboard
+</button>
+
+<button
+  onClick={() => setActiveTab("gallery")}
+  className={`px-4 py-2 rounded-xl font-semibold w-full sm:w-auto transition ${
+    activeTab === "gallery"
+      ? "bg-blue-600 shadow-md"
+      : "bg-slate-700 hover:bg-slate-600"
+  }`}
+>
+  📸 Gallery
 </button>
 
     </div>
@@ -827,6 +839,20 @@ return (
           )}
         </motion.div>
       )}
+
+      {activeTab === "gallery" && (
+  <motion.div
+    key="gallery"
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -10 }}
+    transition={{ duration: 0.5 }}
+    className="w-full"
+  >
+    <GalleryTab user={user} />
+  </motion.div>
+)}
+
     </AnimatePresence>
 
     {/* Release Notes */}
