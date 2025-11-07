@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 Dates follow the **YYYY-MM-DD** format.
 
 ---
+## Version 2.1.1 – 2025-11-07
+**Updated dashboard** to contain better visuals for trip logging and status, adding callouts for commute time, cost, and emissions per user
 
 ## Version 2.1.0 – 2025-10-12
 **Adding trip editing** user can edit old trip metadata, which is then updated in supabase database. Old data is preserved as deprecated
