@@ -144,8 +144,17 @@ export default function App() {
           })
           .filter(Boolean);
         setStations(parsed);
-        setUniqueStations([...new Set(parsed.map((s) => s.name))]);
-        setUniqueLines([...new Set(parsed.map((s) => s.line))]);
+        
+        const stationNames = [...new Set(parsed.map((s) => s.name))].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+        );
+        const lineNames = [...new Set(parsed.map((s) => s.line))].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+        );
+
+      setUniqueStations(stationNames);
+      setUniqueLines(lineNames);
+
         console.log("✅ Loaded stations:", parsed.length);
       } catch (err) {
         console.error("❌ Failed to load stations:", err);
@@ -431,7 +440,7 @@ return (
     </div>
 
     <AnimatePresence mode="wait">
-      {activeTab === "dashboard" && (
+    {activeTab === "dashboard" && (
   <motion.div
     key="dashboard"
     initial={{ opacity: 0, y: 10 }}
@@ -440,7 +449,7 @@ return (
     transition={{ duration: 0.5 }}
     className="w-full max-w-3xl"
   >
-    <DashboardTab />
+    <DashboardTab user={user} />
   </motion.div>
 )}
 

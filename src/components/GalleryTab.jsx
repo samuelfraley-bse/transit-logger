@@ -3,6 +3,7 @@ import { supabase } from "../supabaseClient";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 
+
 export default function GalleryTab({ user }) {
   const [journeys, setJourneys] = useState([]);
   const [photos, setPhotos] = useState([]);
